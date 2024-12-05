@@ -1,5 +1,6 @@
 from .models import Process, Port, Vulnerability, VulnerabilityMatch
 from django.utils import timezone
+from django.db import IntegrityError
 import re
 
 def analyze_vulnerabilities(client):
@@ -24,14 +25,23 @@ def analyze_vulnerabilities(client):
                 # Check version if available
                 confidence = _calculate_confidence(process, vuln)
                 if confidence > 0:
-                    match = VulnerabilityMatch.objects.create(
-                        vulnerability=vuln,
-                        client=client,
-                        match_type='PROCESS',
-                        process=process,
-                        confidence_score=confidence
-                    )
-                    matches.append(match)
+                    try:
+                        match, created = VulnerabilityMatch.objects.get_or_create(
+                            vulnerability=vuln,
+                            client=client,
+                            process=process,
+                            defaults={
+                                'match_type': 'PROCESS',
+                                'confidence_score': confidence
+                            }
+                        )
+                        if not created:
+                            match.confidence_score = confidence
+                            match.save()
+                        matches.append(match)
+                    except IntegrityError:
+                        # Skip if there's a duplicate
+                        continue
 
     # Analyze ports and services
     for port in ports:
@@ -40,25 +50,43 @@ def analyze_vulnerabilities(client):
             if port.service_name and _match_software(port.service_name, vuln.affected_software):
                 confidence = _calculate_service_confidence(port, vuln)
                 if confidence > 0:
-                    match = VulnerabilityMatch.objects.create(
-                        vulnerability=vuln,
-                        client=client,
-                        match_type='SERVICE',
-                        port=port,
-                        confidence_score=confidence
-                    )
-                    matches.append(match)
+                    try:
+                        match, created = VulnerabilityMatch.objects.get_or_create(
+                            vulnerability=vuln,
+                            client=client,
+                            port=port,
+                            defaults={
+                                'match_type': 'SERVICE',
+                                'confidence_score': confidence
+                            }
+                        )
+                        if not created:
+                            match.confidence_score = confidence
+                            match.save()
+                        matches.append(match)
+                    except IntegrityError:
+                        # Skip if there's a duplicate
+                        continue
 
             # Check common vulnerable ports
             if _is_vulnerable_port(port.port_number, vuln):
-                match = VulnerabilityMatch.objects.create(
-                    vulnerability=vuln,
-                    client=client,
-                    match_type='PORT',
-                    port=port,
-                    confidence_score=0.5  # Base confidence for port matches
-                )
-                matches.append(match)
+                try:
+                    match, created = VulnerabilityMatch.objects.get_or_create(
+                        vulnerability=vuln,
+                        client=client,
+                        port=port,
+                        defaults={
+                            'match_type': 'PORT',
+                            'confidence_score': 0.5  # Base confidence for port matches
+                        }
+                    )
+                    if not created:
+                        match.confidence_score = 0.5
+                        match.save()
+                    matches.append(match)
+                except IntegrityError:
+                    # Skip if there's a duplicate
+                    continue
 
     return matches
 

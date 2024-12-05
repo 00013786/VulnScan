@@ -3,13 +3,26 @@
 {% block title %}Open Ports{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-    <h1 class="h2 mb-4">Open Ports</h1>
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Open Ports</h2>
+        <div class="d-flex align-items-center">
+            <div class="me-3">
+                <label for="clientFilter" class="me-2">Client:</label>
+                <select id="clientFilter" class="form-select form-select-sm d-inline-block w-auto">
+                    <option value="">All Clients</option>
+                    {% for client in clients %}
+                    <option value="{{ client.hostname }}">{{ client.hostname }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
 
-    <div class="card shadow mb-4">
+    <div class="card">
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-bordered" id="portTable">
+                <table id="portsTable" class="table table-striped">
                     <thead>
                         <tr>
                             <th>Client</th>
@@ -17,8 +30,11 @@
                             <th>Protocol</th>
                             <th>State</th>
                             <th>Process</th>
-                            <th>PID</th>
-                            <th>Time</th>
+                            <th>Process ID</th>
+                            <th>Service</th>
+                            <th>Version</th>
+                            <th>Risk Level</th>
+                            <th>Last Updated</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -27,18 +43,25 @@
                             <td>{{ port.client.hostname }}</td>
                             <td>{{ port.port_number }}</td>
                             <td>{{ port.protocol }}</td>
-                            <td>
-                                <span class="badge {% if port.state == 'LISTENING' %}bg-warning{% else %}bg-success{% endif %}">
-                                    {{ port.state }}
-                                </span>
-                            </td>
+                            <td>{{ port.state }}</td>
                             <td>{{ port.process_name }}</td>
                             <td>{{ port.process_id }}</td>
-                            <td>{{ port.timestamp|date:"Y-m-d H:i:s" }}</td>
+                            <td>{{ port.service_name|default:"Unknown" }}</td>
+                            <td>{{ port.service_version|default:"Unknown" }}</td>
+                            <td>
+                                {% if port.risk_level == 'high' %}
+                                    <span class="badge bg-danger">High</span>
+                                {% elif port.risk_level == 'medium' %}
+                                    <span class="badge bg-warning">Medium</span>
+                                {% else %}
+                                    <span class="badge bg-success">Low</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ port.timestamp }}</td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="7" class="text-center">No open ports found</td>
+                            <td colspan="10" class="text-center">No open ports found</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -50,20 +73,25 @@
 {% endblock %}
 
 {% block scripts %}
-<link href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
 <script>
-    $(document).ready(function() {
-        $('#portTable').DataTable({
-            order: [[6, 'desc']],
-            pageLength: 25
-        });
+$(document).ready(function() {
+    const portsTable = $('#portsTable').DataTable({
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+        order: [[9, 'desc'], [1, 'asc']], // Sort by risk level desc, then by port number asc
+        language: {
+            search: "Filter ports:"
+        }
     });
 
-    // Refresh the page every minute
-    setTimeout(function() {
-        location.reload();
-    }, 60000);
+    // Add client filtering functionality
+    $('#clientFilter').on('change', function() {
+        const selectedClient = this.value;
+        portsTable
+            .column(0) // Client column index
+            .search(selectedClient)
+            .draw();
+    });
+});
 </script>
 {% endblock %}

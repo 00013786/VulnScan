@@ -1,9 +1,10 @@
 from django.shortcuts import render, get_object_or_404
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
+from rest_framework.authentication import SessionAuthentication, BasicAuthentication, TokenAuthentication
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.utils import timezone
@@ -16,6 +17,8 @@ from .serializers import (
     SuspiciousActivitySerializer, VulnerabilitySerializer
 )
 from .utils import analyze_vulnerabilities
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
 @login_required
 def dashboard(request):
@@ -43,8 +46,8 @@ def dashboard(request):
 def device_detail(request, device_id):
     client = get_object_or_404(Client, id=device_id)
     
-    # Get recent data
-    processes = Process.objects.filter(client=client).order_by('-timestamp')[:50]
+    # Get recent data, excluding PID 0
+    processes = Process.objects.filter(client=client).exclude(pid=0).order_by('-timestamp')[:50]
     ports = Port.objects.filter(client=client).order_by('-timestamp')[:50]
     alerts = SuspiciousActivity.objects.filter(client=client).order_by('-timestamp')[:20]
     
@@ -57,6 +60,8 @@ def device_detail(request, device_id):
     service_vulnerabilities = vulnerability_matches.filter(match_type='SERVICE')
     port_vulnerabilities = vulnerability_matches.filter(match_type='PORT')
     
+    clients = Client.objects.all().order_by('hostname')
+
     context = {
         'client': client,
         'processes': processes,
@@ -65,24 +70,27 @@ def device_detail(request, device_id):
         'process_vulnerabilities': process_vulnerabilities,
         'service_vulnerabilities': service_vulnerabilities,
         'port_vulnerabilities': port_vulnerabilities,
+        'clients': clients,
     }
     return render(request, 'device_detail.html', context)
 
 @login_required
 def processes(request):
-    processes = Process.objects.all().order_by('-timestamp')[:100]
-    context = {
+    processes = Process.objects.select_related('client').exclude(pid=0).order_by('-timestamp')
+    clients = Client.objects.all().order_by('hostname')
+    return render(request, 'processes.html', {
         'processes': processes,
-    }
-    return render(request, 'processes.html', context)
+        'clients': clients,
+    })
 
 @login_required
 def ports(request):
-    ports = Port.objects.all().order_by('-timestamp')[:100]
-    context = {
+    ports = Port.objects.select_related('client').order_by('-timestamp')
+    clients = Client.objects.all().order_by('hostname')
+    return render(request, 'ports.html', {
         'ports': ports,
-    }
-    return render(request, 'ports.html', context)
+        'clients': clients,
+    })
 
 @login_required
 def alerts(request):
@@ -100,10 +108,14 @@ def vulnerabilities(request):
     }
     return render(request, 'vulnerabilities.html', context)
 
+@csrf_exempt
 @api_view(['POST'])
+@permission_classes([AllowAny])  # Temporarily allow any access to debug
+@authentication_classes([TokenAuthentication, SessionAuthentication])
 def upload_data(request):
     try:
         hostname = request.data.get('hostname')
+        print(f"Received upload request from {hostname}")  # Add debug logging
         if not hostname:
             return Response(
                 {'error': 'Hostname is required'},
@@ -135,13 +147,14 @@ def upload_data(request):
                         {'error': 'Process data must include pid and name'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
-                Process.objects.create(
-                    client=client,
-                    pid=proc_data['pid'],
-                    name=proc_data['name'],
-                    path=proc_data.get('path', ''),
-                    command_line=proc_data.get('commandLine', '')
-                )
+                if proc_data['pid'] != 0:
+                    Process.objects.create(
+                        client=client,
+                        pid=proc_data['pid'],
+                        name=proc_data['name'],
+                        path=proc_data.get('path', ''),
+                        command_line=proc_data.get('commandLine', '')
+                    )
 
         # Process the reported ports
         if 'ports' in request.data:
@@ -207,15 +220,16 @@ class ClientViewSet(viewsets.ModelViewSet):
             # Process the reported processes
             if 'processes' in data:
                 for proc_data in data['processes']:
-                    Process.objects.create(
-                        client=client,
-                        pid=proc_data['pid'],
-                        name=proc_data['name'],
-                        path=proc_data.get('path', ''),
-                        command_line=proc_data.get('commandLine', '')
-                    )
-                    # Check for vulnerabilities
-                    self.check_process_vulnerabilities(proc_data['name'])
+                    if proc_data['pid'] != 0:  # Skip processes with PID 0
+                        Process.objects.create(
+                            client=client,
+                            pid=proc_data['pid'],
+                            name=proc_data['name'],
+                            path=proc_data.get('path', ''),
+                            command_line=proc_data.get('commandLine', '')
+                        )
+                        # Check for vulnerabilities
+                        self.check_process_vulnerabilities(proc_data['name'])
 
             # Process the reported ports
             if 'ports' in data:

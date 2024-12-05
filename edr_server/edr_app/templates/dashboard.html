@@ -14,7 +14,7 @@
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover" id="activeDevicesTable">
                             <thead>
                                 <tr>
                                     <th>Hostname</th>
@@ -30,7 +30,9 @@
                                     <td>{{ client.ip_address }}</td>
                                     <td>{{ client.last_seen }}</td>
                                     <td>
-                                        <a href="{% url 'device_detail' client.id %}" class="btn btn-primary btn-sm">View Details</a>
+                                        <a href="/device/{{ client.id }}/" class="btn btn-primary btn-sm device-detail-link">
+                                            View Details
+                                        </a>
                                     </td>
                                 </tr>
                                 {% empty %}
@@ -54,7 +56,7 @@
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover" id="inactiveDevicesTable">
                             <thead>
                                 <tr>
                                     <th>Hostname</th>
@@ -70,7 +72,9 @@
                                     <td>{{ client.ip_address }}</td>
                                     <td>{{ client.last_seen }}</td>
                                     <td>
-                                        <a href="{% url 'device_detail' client.id %}" class="btn btn-secondary btn-sm">View Details</a>
+                                        <a href="/device/{{ client.id }}/" class="btn btn-primary btn-sm device-detail-link">
+                                            View Details
+                                        </a>
                                     </td>
                                 </tr>
                                 {% empty %}
@@ -88,11 +92,26 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_js %}
 <script>
-    // Auto-refresh the dashboard every 30 seconds
-    setTimeout(function() {
-        location.reload();
-    }, 30000);
+$(document).ready(function() {
+    // Initialize DataTables
+    $('#activeDevicesTable').DataTable({
+        "order": [[2, "desc"]], // Sort by last seen by default
+        "pageLength": 10
+    });
+    
+    $('#inactiveDevicesTable').DataTable({
+        "order": [[2, "desc"]], // Sort by last seen by default
+        "pageLength": 10
+    });
+
+    // Add click handler for device detail links
+    $('.device-detail-link').on('click', function(e) {
+        e.preventDefault();
+        var href = $(this).attr('href');
+        window.location.href = href;
+    });
+});
 </script>
 {% endblock %}

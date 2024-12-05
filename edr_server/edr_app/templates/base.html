@@ -3,203 +3,242 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EDR Dashboard - {% block title %}{% endblock %}</title>
+    <title>{% block title %}EDR Dashboard{% endblock %}</title>
+    <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <style>
         body {
             overflow-x: hidden;
         }
         .navbar {
-            padding-left: 60px;
-            z-index: 1030;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .table th, .table td {
+            vertical-align: middle;
+        }
+        .timestamp {
+            min-width: 150px;
+        }
+        .process-name {
+            min-width: 200px;
+        }
+        .port-number {
+            min-width: 100px;
+        }
+        .service-name {
+            min-width: 150px;
+        }
+        .client-name {
+            min-width: 150px;
+        }
+        .alert-type {
+            min-width: 120px;
+        }
+        .alert-description {
+            min-width: 300px;
+        }
+        .vulnerability-id {
+            min-width: 120px;
+        }
+        .vulnerability-description {
+            min-width: 300px;
+        }
+        .severity {
+            min-width: 70px;
         }
         .sidebar {
             position: fixed;
-            top: 0;
+            top: 56px; /* Height of navbar */
             bottom: 0;
             left: 0;
             width: 250px;
-            z-index: 1029;
-            padding: 56px 0 0;
-            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
-            transition: transform 0.3s ease-in-out;
-            background-color: #f8f9fa;
-        }
-        .sidebar.collapsed {
-            transform: translateX(-100%);
-        }
-        .sidebar-sticky {
-            position: relative;
-            top: 0;
-            height: calc(100vh - 56px);
-            padding-top: .5rem;
+            z-index: 100;
+            padding: 20px 0;
             overflow-x: hidden;
             overflow-y: auto;
+            background-color: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out;
         }
+        
+        .sidebar.show {
+            transform: translateX(0);
+        }
+
         .main-content {
-            position: relative;
-            margin-left: 250px;
-            padding: 56px 20px 20px;
-            transition: margin-left 0.3s ease-in-out;
-            width: calc(100% - 250px);
-        }
-        .main-content.expanded {
             margin-left: 0;
-            width: 100%;
+            transition: margin-left 0.3s ease-in-out;
         }
-        .nav-link {
-            color: #333;
-            padding: 0.5rem 1rem;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+
+        .main-content.sidebar-open {
+            margin-left: 250px;
         }
-        .nav-link.active {
-            color: #007bff;
-            background-color: rgba(0, 123, 255, 0.1);
-        }
-        .nav-link:hover {
-            background-color: rgba(0, 0, 0, 0.05);
-        }
-        #sidebarToggle {
-            position: fixed;
-            left: 15px;
-            top: 10px;
-            z-index: 1031;
-            background: none;
-            border: none;
-            color: white;
-            cursor: pointer;
-            padding: 8px;
-            border-radius: 4px;
-        }
-        #sidebarToggle:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        .navbar-brand {
-            padding-left: 60px !important;  
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-        .navbar > .container-fluid {
-            padding-left: 0;
-        }
+
         @media (max-width: 768px) {
-            .sidebar {
-                transform: translateX(-100%);
-            }
-            .sidebar.show {
-                transform: translateX(0);
-            }
-            .main-content {
+            .main-content.sidebar-open {
                 margin-left: 0;
-                width: 100%;
-                padding: 56px 15px 15px;
             }
-            .navbar {
-                padding-left: 50px;
-            }
-            #sidebarToggle {
-                left: 10px;
-            }
+        }
+        .dataTables_wrapper .dataTables_length {
+            margin-bottom: 1rem;
+        }
+        .dataTables_wrapper .dataTables_filter {
+            margin-bottom: 1rem;
+        }
+        .entries-select {
+            min-width: 70px;
         }
     </style>
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar navbar-dark fixed-top bg-dark flex-md-nowrap p-0 shadow">
-        <button id="sidebarToggle" class="btn">
-            <i class="fa fa-bars"></i>
-        </button>
-        <a class="navbar-brand" href="/">EDR Dashboard</a>
-        <ul class="navbar-nav px-3 ms-auto">
-            <li class="nav-item text-nowrap">
-                <a class="nav-link" href="{% url 'admin:logout' %}">Sign out</a>
-            </li>
-        </ul>
-    </nav>
-
-    <div class="container-fluid p-0">
-        <nav class="sidebar">
-            <div class="sidebar-sticky">
-                <ul class="nav flex-column">
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <button class="navbar-toggler me-2" type="button" id="sidebarToggle">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <a class="navbar-brand" href="{% url 'dashboard' %}">EDR Dashboard</a>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                {% if user.is_authenticated %}
+                <ul class="navbar-nav">
                     <li class="nav-item">
-                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
-                            <i class="fa fa-dashboard"></i> Dashboard
-                        </a>
+                        <a class="nav-link" href="{% url 'dashboard' %}">Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.resolver_match.url_name == 'processes' %}active{% endif %}" href="{% url 'processes' %}">
-                            <i class="fa fa-tasks"></i> Processes
-                        </a>
+                        <a class="nav-link" href="{% url 'processes' %}">Processes</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.resolver_match.url_name == 'ports' %}active{% endif %}" href="{% url 'ports' %}">
-                            <i class="fa fa-plug"></i> Ports
-                        </a>
+                        <a class="nav-link" href="{% url 'ports' %}">Ports</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.resolver_match.url_name == 'alerts' %}active{% endif %}" href="{% url 'alerts' %}">
-                            <i class="fa fa-exclamation-triangle"></i> Alerts
-                        </a>
+                        <a class="nav-link" href="{% url 'alerts' %}">Alerts</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.resolver_match.url_name == 'vulnerabilities' %}active{% endif %}" href="{% url 'vulnerabilities' %}">
-                            <i class="fa fa-bug"></i> Vulnerabilities
-                        </a>
+                        <a class="nav-link" href="{% url 'vulnerabilities' %}">Vulnerabilities</a>
                     </li>
                 </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link">Welcome, {{ user.username }}</span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'logout' %}">Logout</a>
+                    </li>
+                </ul>
+                {% endif %}
             </div>
-        </nav>
+        </div>
+    </nav>
 
-        <main role="main" class="main-content">
-            {% block content %}{% endblock %}
-        </main>
+    <!-- Sidebar -->
+    <nav id="sidebar" class="sidebar">
+        <div class="position-sticky">
+            <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
+                        <i class="fa fa-dashboard"></i> Dashboard
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'processes' %}active{% endif %}" href="{% url 'processes' %}">
+                        <i class="fa fa-tasks"></i> Processes
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'ports' %}active{% endif %}" href="{% url 'ports' %}">
+                        <i class="fa fa-plug"></i> Ports
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'alerts' %}active{% endif %}" href="{% url 'alerts' %}">
+                        <i class="fa fa-exclamation-triangle"></i> Alerts
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'vulnerabilities' %}active{% endif %}" href="{% url 'vulnerabilities' %}">
+                        <i class="fa fa-bug"></i> Vulnerabilities
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <div class="row">
+            <main class="main-content col px-md-4">
+                {% block content %}
+                {% endblock %}
+            </main>
+        </div>
     </div>
 
+    <!-- JavaScript -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    
+    <!-- Custom JavaScript -->
     <script>
-        $(document).ready(function() {
-            const sidebar = $('.sidebar');
-            const mainContent = $('.main-content');
-            const mediaQuery = window.matchMedia('(max-width: 768px)');
-
-            function handleSidebarToggle() {
-                if (mediaQuery.matches) {
-                    sidebar.toggleClass('show');
-                } else {
-                    sidebar.toggleClass('collapsed');
-                    mainContent.toggleClass('expanded');
+        // Set up CSRF token for AJAX requests
+        var csrftoken = '{{ csrf_token }}';
+        $.ajaxSetup({
+            beforeSend: function(xhr, settings) {
+                if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
                 }
             }
-
-            $('#sidebarToggle').click(function(e) {
-                e.preventDefault();
-                handleSidebarToggle();
-            });
-
-            // Close sidebar when clicking outside on mobile
-            $(document).on('click touchstart', function(e) {
-                if (mediaQuery.matches && 
-                    !$(e.target).closest('.sidebar').length && 
-                    !$(e.target).closest('#sidebarToggle').length && 
-                    sidebar.hasClass('show')) {
-                    sidebar.removeClass('show');
-                }
-            });
-
-            // Handle window resize
-            mediaQuery.addListener(function(e) {
-                if (!e.matches) {
-                    sidebar.removeClass('show');
-                } else {
-                    sidebar.removeClass('collapsed');
-                    mainContent.removeClass('expanded');
-                }
-            });
         });
     </script>
-    {% block scripts %}{% endblock %}
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        let isMouseOverSidebar = false;
+
+        // Toggle sidebar on button click
+        sidebarToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            sidebar.classList.add('show');
+            mainContent.classList.add('sidebar-open');
+        });
+
+        // Handle mouse enter on sidebar
+        sidebar.addEventListener('mouseenter', function() {
+            isMouseOverSidebar = true;
+        });
+
+        // Handle mouse leave on sidebar
+        sidebar.addEventListener('mouseleave', function() {
+            isMouseOverSidebar = false;
+            sidebar.classList.remove('show');
+            mainContent.classList.remove('sidebar-open');
+        });
+
+        // Close sidebar when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
+                sidebar.classList.remove('show');
+                mainContent.classList.remove('sidebar-open');
+            }
+        });
+
+        // Handle active link highlighting
+        const currentPath = window.location.pathname;
+        document.querySelectorAll('.nav-link').forEach(link => {
+            if (link.getAttribute('href') === currentPath) {
+                link.classList.add('active');
+            }
+        });
+    });
+    </script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
