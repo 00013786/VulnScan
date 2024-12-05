@@ -29,10 +29,17 @@ from edr_app.views import (
 router = routers.DefaultRouter()
 router.register(r'clients', ClientViewSet)
 
+def redirect_to_login(request):
+    return redirect('login')
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', dashboard, name='dashboard'),
-    path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('', redirect_to_login, name='home'),  # Redirect root to login
+    path('dashboard/', dashboard, name='dashboard'),  # Move dashboard to its own URL
+    path('login/', auth_views.LoginView.as_view(
+        template_name='registration/login.html',
+        redirect_authenticated_user=True
+    ), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('device/<int:device_id>/', device_detail, name='device_detail'),
     path('processes/', processes, name='processes'),

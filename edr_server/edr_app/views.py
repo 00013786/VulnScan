@@ -110,7 +110,7 @@ def vulnerabilities(request):
 
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])  # Temporarily allow any access to debug
+@permission_classes([IsAuthenticated])
 @authentication_classes([TokenAuthentication, SessionAuthentication])
 def upload_data(request):
     try:

@@ -10,7 +10,8 @@
     <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <style>
         body {
-            overflow-x: hidden;
+            min-height: 100vh;
+            background-color: #f8f9fa;
         }
         .navbar {
             padding: 1rem;
@@ -99,12 +100,12 @@
     <!-- Navigation -->
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
+            {% if user.is_authenticated %}
             <button class="navbar-toggler me-2" type="button" id="sidebarToggle">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <a class="navbar-brand" href="{% url 'dashboard' %}">EDR Dashboard</a>
             <div class="collapse navbar-collapse" id="navbarNav">
-                {% if user.is_authenticated %}
                 <ul class="navbar-nav">
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'dashboard' %}">Dashboard</a>
@@ -130,8 +131,10 @@
                         <a class="nav-link" href="{% url 'logout' %}">Logout</a>
                     </li>
                 </ul>
-                {% endif %}
             </div>
+            {% else %}
+            <a class="navbar-brand mx-auto" href="{% url 'login' %}">EDR Dashboard</a>
+            {% endif %}
         </div>
     </nav>
 

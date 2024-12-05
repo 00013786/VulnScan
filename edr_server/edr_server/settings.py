@@ -142,18 +142,21 @@ NVD_API_KEY = '17ddec13-52d3-4a29-bd4d-0590d56158b5'
 NVD_API_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
 
 # Authentication settings
-LOGIN_URL = '/login/'  # Make sure this is an absolute URL
-LOGIN_REDIRECT_URL = '/'
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/login/'
 
-# Session and CSRF settings
-CSRF_COOKIE_SECURE = False
-SESSION_COOKIE_SECURE = False
+# Session settings
+SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_SAVE_EVERY_REQUEST = True
+
+# Security settings
+CSRF_COOKIE_SECURE = False  # Set to True in production
+SESSION_COOKIE_SECURE = False  # Set to True in production
 CSRF_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000']
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-SESSION_COOKIE_AGE = 86400  # 24 hours in seconds
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
