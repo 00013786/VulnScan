@@ -1,44 +1,86 @@
 {% extends 'base.html' %}
 
-{% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Device Details: {{ client.hostname }}</h2>
-        <a href="{% url 'dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
-    </div>
+{% block title %}{{ client.hostname }} Details{% endblock %}
 
-    <div class="card mb-4">
-        <div class="card-header">
-            <h4>Device Information</h4>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-6">
-                    <p><strong>Hostname:</strong> {{ client.hostname }}</p>
-                    <p><strong>IP Address:</strong> {{ client.ip_address }}</p>
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2>Device Details: {{ client.hostname }}</h2>
+    <p>IP Address: {{ client.ip_address }}</p>
+    <p>Last Seen: {{ client.last_seen }}</p>
+
+    <!-- Vulnerability Summary -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">Potential Vulnerabilities</h4>
                 </div>
-                <div class="col-md-6">
-                    <p><strong>Last Seen:</strong> {{ client.last_seen }}</p>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h5>Process Vulnerabilities</h5>
+                            {% for match in process_vulnerabilities %}
+                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
+                                <strong>{{ match.vulnerability.cve_id }}</strong>
+                                <p class="mb-1">Process: {{ match.process.name }}</p>
+                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
+                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
+                            </div>
+                            {% empty %}
+                            <p>No process vulnerabilities detected</p>
+                            {% endfor %}
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Service Vulnerabilities</h5>
+                            {% for match in service_vulnerabilities %}
+                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
+                                <strong>{{ match.vulnerability.cve_id }}</strong>
+                                <p class="mb-1">Service: {{ match.port.service_name }}</p>
+                                <p class="mb-1">Port: {{ match.port.port_number }}</p>
+                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
+                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
+                            </div>
+                            {% empty %}
+                            <p>No service vulnerabilities detected</p>
+                            {% endfor %}
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Port Vulnerabilities</h5>
+                            {% for match in port_vulnerabilities %}
+                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
+                                <strong>{{ match.vulnerability.cve_id }}</strong>
+                                <p class="mb-1">Port: {{ match.port.port_number }}</p>
+                                <p class="mb-1">Protocol: {{ match.port.protocol }}</p>
+                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
+                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
+                            </div>
+                            {% empty %}
+                            <p>No port vulnerabilities detected</p>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="row">
-        <div class="col-12">
-            <div class="card mb-4">
+    <!-- Processes -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
                 <div class="card-header">
-                    <h4>Running Processes</h4>
+                    <h4 class="mb-0">Running Processes</h4>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-striped">
                             <thead>
                                 <tr>
                                     <th>PID</th>
                                     <th>Name</th>
                                     <th>Path</th>
                                     <th>Command Line</th>
+                                    <th>Version</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
@@ -48,12 +90,13 @@
                                     <td>{{ process.pid }}</td>
                                     <td>{{ process.name }}</td>
                                     <td>{{ process.path }}</td>
-                                    <td>{{ process.command_line }}</td>
+                                    <td>{{ process.command_line|truncatechars:50 }}</td>
+                                    <td>{{ process.version|default:"Unknown" }}</td>
                                     <td>{{ process.timestamp }}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="5" class="text-center">No processes found</td>
+                                    <td colspan="6">No processes found</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -62,22 +105,26 @@
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="col-12">
-            <div class="card mb-4">
+    <!-- Ports -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
                 <div class="card-header">
-                    <h4>Open Ports</h4>
+                    <h4 class="mb-0">Open Ports</h4>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-striped">
                             <thead>
                                 <tr>
                                     <th>Port</th>
                                     <th>Protocol</th>
                                     <th>State</th>
-                                    <th>Process Name</th>
-                                    <th>Process ID</th>
+                                    <th>Service</th>
+                                    <th>Version</th>
+                                    <th>Process</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
@@ -87,13 +134,14 @@
                                     <td>{{ port.port_number }}</td>
                                     <td>{{ port.protocol }}</td>
                                     <td>{{ port.state }}</td>
-                                    <td>{{ port.process_name }}</td>
-                                    <td>{{ port.process_id }}</td>
+                                    <td>{{ port.service_name|default:"Unknown" }}</td>
+                                    <td>{{ port.service_version|default:"Unknown" }}</td>
+                                    <td>{{ port.process_name }} ({{ port.process_id }})</td>
                                     <td>{{ port.timestamp }}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="6" class="text-center">No open ports found</td>
+                                    <td colspan="7">No open ports found</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -102,21 +150,23 @@
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="col-12">
-            <div class="card mb-4">
+    <!-- Alerts -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
                 <div class="card-header">
-                    <h4>Recent Alerts</h4>
+                    <h4 class="mb-0">Recent Alerts</h4>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-striped">
                             <thead>
                                 <tr>
                                     <th>Type</th>
                                     <th>Description</th>
-                                    <th>Process Name</th>
-                                    <th>Process ID</th>
+                                    <th>Process</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
@@ -125,13 +175,12 @@
                                 <tr>
                                     <td>{{ alert.type }}</td>
                                     <td>{{ alert.description }}</td>
-                                    <td>{{ alert.process_name }}</td>
-                                    <td>{{ alert.process_id }}</td>
+                                    <td>{{ alert.process_name }} {% if alert.process_id %}({{ alert.process_id }}){% endif %}</td>
                                     <td>{{ alert.timestamp }}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="5" class="text-center">No alerts found</td>
+                                    <td colspan="4">No alerts found</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

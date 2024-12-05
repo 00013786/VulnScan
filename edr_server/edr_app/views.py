@@ -7,24 +7,34 @@ from rest_framework.views import APIView
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.utils import timezone
+from datetime import timedelta
 import requests
 import json
-from .models import Client, Process, Port, SuspiciousActivity, Vulnerability
+from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, VulnerabilityMatch
 from .serializers import (
     ClientSerializer, ProcessSerializer, PortSerializer,
     SuspiciousActivitySerializer, VulnerabilitySerializer
 )
+from .utils import analyze_vulnerabilities
 
 @login_required
 def dashboard(request):
-    # Get all active clients (seen in last 5 minutes)
-    active_threshold = timezone.now() - timezone.timedelta(minutes=5)
-    clients = Client.objects.filter(last_seen__gte=active_threshold).order_by('-last_seen')
+    # Get all clients
+    all_clients = Client.objects.all()
     
-    inactive_clients = Client.objects.filter(last_seen__lt=active_threshold).order_by('-last_seen')
-
+    # Separate active and inactive clients
+    five_minutes_ago = timezone.now() - timedelta(minutes=5)
+    active_clients = []
+    inactive_clients = []
+    
+    for client in all_clients:
+        if client.last_seen >= five_minutes_ago:
+            active_clients.append(client)
+        else:
+            inactive_clients.append(client)
+    
     context = {
-        'active_clients': clients,
+        'active_clients': active_clients,
         'inactive_clients': inactive_clients,
     }
     return render(request, 'dashboard.html', context)
@@ -33,44 +43,60 @@ def dashboard(request):
 def device_detail(request, device_id):
     client = get_object_or_404(Client, id=device_id)
     
-    # Get the latest processes and ports for this client
-    processes = Process.objects.filter(client=client).order_by('-timestamp')[:100]
-    ports = Port.objects.filter(client=client).order_by('-timestamp')[:100]
-    alerts = SuspiciousActivity.objects.filter(client=client).order_by('-timestamp')[:100]
+    # Get recent data
+    processes = Process.objects.filter(client=client).order_by('-timestamp')[:50]
+    ports = Port.objects.filter(client=client).order_by('-timestamp')[:50]
+    alerts = SuspiciousActivity.objects.filter(client=client).order_by('-timestamp')[:20]
+    
+    # Analyze vulnerabilities
+    analyze_vulnerabilities(client)
+    vulnerability_matches = VulnerabilityMatch.objects.filter(client=client).order_by('-confidence_score')
+    
+    # Group vulnerabilities by type
+    process_vulnerabilities = vulnerability_matches.filter(match_type='PROCESS')
+    service_vulnerabilities = vulnerability_matches.filter(match_type='SERVICE')
+    port_vulnerabilities = vulnerability_matches.filter(match_type='PORT')
     
     context = {
         'client': client,
         'processes': processes,
         'ports': ports,
         'alerts': alerts,
+        'process_vulnerabilities': process_vulnerabilities,
+        'service_vulnerabilities': service_vulnerabilities,
+        'port_vulnerabilities': port_vulnerabilities,
     }
     return render(request, 'device_detail.html', context)
 
 @login_required
 def processes(request):
+    processes = Process.objects.all().order_by('-timestamp')[:100]
     context = {
-        'processes': Process.objects.all().order_by('-timestamp')
+        'processes': processes,
     }
     return render(request, 'processes.html', context)
 
 @login_required
 def ports(request):
+    ports = Port.objects.all().order_by('-timestamp')[:100]
     context = {
-        'ports': Port.objects.all().order_by('-timestamp')
+        'ports': ports,
     }
     return render(request, 'ports.html', context)
 
 @login_required
 def alerts(request):
+    alerts = SuspiciousActivity.objects.all().order_by('-timestamp')[:100]
     context = {
-        'alerts': SuspiciousActivity.objects.all().order_by('-timestamp')
+        'alerts': alerts,
     }
     return render(request, 'alerts.html', context)
 
 @login_required
 def vulnerabilities(request):
+    vulnerabilities = Vulnerability.objects.all().order_by('-published_date')
     context = {
-        'vulnerabilities': Vulnerability.objects.all().order_by('-published_date')
+        'vulnerabilities': vulnerabilities,
     }
     return render(request, 'vulnerabilities.html', context)
 
@@ -153,6 +179,9 @@ def upload_data(request):
                     timestamp=timezone.now()
                 )
 
+        # Analyze vulnerabilities
+        analyze_vulnerabilities(client)
+
         return Response({'status': 'success'})
     except Exception as e:
         return Response(
@@ -211,6 +240,9 @@ class ClientViewSet(viewsets.ModelViewSet):
                         process_id=activity_data.get('pid'),
                         timestamp=timezone.now()
                     )
+
+            # Analyze vulnerabilities
+            analyze_vulnerabilities(client)
 
             return Response({'status': 'success'})
         except Exception as e:
