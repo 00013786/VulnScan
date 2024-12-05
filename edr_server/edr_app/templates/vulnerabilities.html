@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}Vulnerabilities{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h2 mb-4">Known Vulnerabilities</h1>
+
+    <div class="card shadow mb-4">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="vulnTable">
+                    <thead>
+                        <tr>
+                            <th>CVE ID</th>
+                            <th>Severity</th>
+                            <th>Published</th>
+                            <th>Last Modified</th>
+                            <th>Description</th>
+                            <th>Affected Processes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for vuln in vulnerabilities %}
+                        <tr>
+                            <td>
+                                <a href="https://nvd.nist.gov/vuln/detail/{{ vuln.cve_id }}" target="_blank">
+                                    {{ vuln.cve_id }}
+                                </a>
+                            </td>
+                            <td>
+                                <span class="badge {% if vuln.severity == 'HIGH' %}bg-danger{% elif vuln.severity == 'MEDIUM' %}bg-warning{% else %}bg-info{% endif %}">
+                                    {{ vuln.severity }}
+                                </span>
+                            </td>
+                            <td>{{ vuln.published_date|date:"Y-m-d" }}</td>
+                            <td>{{ vuln.last_modified_date|date:"Y-m-d" }}</td>
+                            <td>{{ vuln.description|truncatechars:200 }}</td>
+                            <td>
+                                {% for process in vuln.related_processes.all %}
+                                    <div>{{ process.name }} ({{ process.client.hostname }})</div>
+                                {% endfor %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No vulnerabilities found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
+<script>
+    $(document).ready(function() {
+        $('#vulnTable').DataTable({
+            order: [[2, 'desc']],
+            pageLength: 25
+        });
+    });
+
+    // Refresh the page every 5 minutes
+    setTimeout(function() {
+        location.reload();
+    }, 300000);
+</script>
+{% endblock %}
