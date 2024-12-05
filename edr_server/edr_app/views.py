@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -17,15 +17,34 @@ from .serializers import (
 
 @login_required
 def dashboard(request):
+    # Get all active clients (seen in last 5 minutes)
+    active_threshold = timezone.now() - timezone.timedelta(minutes=5)
+    clients = Client.objects.filter(last_seen__gte=active_threshold).order_by('-last_seen')
+    
+    inactive_clients = Client.objects.filter(last_seen__lt=active_threshold).order_by('-last_seen')
+
     context = {
-        'client_count': Client.objects.count(),
-        'process_count': Process.objects.count(),
-        'port_count': Port.objects.count(),
-        'alert_count': SuspiciousActivity.objects.count(),
-        'recent_alerts': SuspiciousActivity.objects.all().order_by('-timestamp')[:5],
-        'recent_vulnerabilities': Vulnerability.objects.all().order_by('-published_date')[:5],
+        'active_clients': clients,
+        'inactive_clients': inactive_clients,
     }
     return render(request, 'dashboard.html', context)
+
+@login_required
+def device_detail(request, device_id):
+    client = get_object_or_404(Client, id=device_id)
+    
+    # Get the latest processes and ports for this client
+    processes = Process.objects.filter(client=client).order_by('-timestamp')[:100]
+    ports = Port.objects.filter(client=client).order_by('-timestamp')[:100]
+    alerts = SuspiciousActivity.objects.filter(client=client).order_by('-timestamp')[:100]
+    
+    context = {
+        'client': client,
+        'processes': processes,
+        'ports': ports,
+        'alerts': alerts,
+    }
+    return render(request, 'device_detail.html', context)
 
 @login_required
 def processes(request):

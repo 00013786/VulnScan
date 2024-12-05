@@ -19,7 +19,8 @@ from django.urls import path, include
 from rest_framework import routers
 from edr_app.views import (
     ClientViewSet, dashboard, processes,
-    ports, alerts, vulnerabilities, upload_data
+    ports, alerts, vulnerabilities, upload_data,
+    device_detail
 )
 
 router = routers.DefaultRouter()
@@ -27,6 +28,7 @@ router.register(r'clients', ClientViewSet)
 
 urlpatterns = [
     path('', dashboard, name='dashboard'),
+    path('device/<int:device_id>/', device_detail, name='device_detail'),
     path('processes/', processes, name='processes'),
     path('ports/', ports, name='ports'),
     path('alerts/', alerts, name='alerts'),

@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Device Details: {{ client.hostname }}</h2>
+        <a href="{% url 'dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Device Information</h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Hostname:</strong> {{ client.hostname }}</p>
+                    <p><strong>IP Address:</strong> {{ client.ip_address }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Last Seen:</strong> {{ client.last_seen }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4>Running Processes</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>PID</th>
+                                    <th>Name</th>
+                                    <th>Path</th>
+                                    <th>Command Line</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for process in processes %}
+                                <tr>
+                                    <td>{{ process.pid }}</td>
+                                    <td>{{ process.name }}</td>
+                                    <td>{{ process.path }}</td>
+                                    <td>{{ process.command_line }}</td>
+                                    <td>{{ process.timestamp }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center">No processes found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4>Open Ports</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Port</th>
+                                    <th>Protocol</th>
+                                    <th>State</th>
+                                    <th>Process Name</th>
+                                    <th>Process ID</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for port in ports %}
+                                <tr>
+                                    <td>{{ port.port_number }}</td>
+                                    <td>{{ port.protocol }}</td>
+                                    <td>{{ port.state }}</td>
+                                    <td>{{ port.process_name }}</td>
+                                    <td>{{ port.process_id }}</td>
+                                    <td>{{ port.timestamp }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No open ports found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4>Recent Alerts</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                    <th>Process Name</th>
+                                    <th>Process ID</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in alerts %}
+                                <tr>
+                                    <td>{{ alert.type }}</td>
+                                    <td>{{ alert.description }}</td>
+                                    <td>{{ alert.process_name }}</td>
+                                    <td>{{ alert.process_id }}</td>
+                                    <td>{{ alert.timestamp }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center">No alerts found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -77,7 +77,14 @@
         #sidebarToggle:hover {
             background-color: rgba(255, 255, 255, 0.1);
         }
-
+        .navbar-brand {
+            padding-left: 60px !important;  
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .navbar > .container-fluid {
+            padding-left: 0;
+        }
         @media (max-width: 768px) {
             .sidebar {
                 transform: translateX(-100%);
@@ -104,7 +111,7 @@
         <button id="sidebarToggle" class="btn">
             <i class="fa fa-bars"></i>
         </button>
-        <a class="navbar-brand px-3" href="/">EDR Dashboard</a>
+        <a class="navbar-brand" href="/">EDR Dashboard</a>
         <ul class="navbar-nav px-3 ms-auto">
             <li class="nav-item text-nowrap">
                 <a class="nav-link" href="{% url 'admin:logout' %}">Sign out</a>
