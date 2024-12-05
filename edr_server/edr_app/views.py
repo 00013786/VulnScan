@@ -25,16 +25,12 @@ def dashboard(request):
     # Get all clients
     all_clients = Client.objects.all()
     
-    # Separate active and inactive clients
+    # Set the threshold for active devices (5 minutes)
     five_minutes_ago = timezone.now() - timedelta(minutes=5)
-    active_clients = []
-    inactive_clients = []
     
-    for client in all_clients:
-        if client.last_seen >= five_minutes_ago:
-            active_clients.append(client)
-        else:
-            inactive_clients.append(client)
+    # Filter active and inactive clients
+    active_clients = Client.objects.filter(last_seen__gte=five_minutes_ago)
+    inactive_clients = Client.objects.filter(last_seen__lt=five_minutes_ago)
     
     context = {
         'active_clients': active_clients,
@@ -110,12 +106,11 @@ def vulnerabilities(request):
 
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([AllowAny])  # Allow any client to upload data
 def upload_data(request):
     try:
+        # Get hostname from request data
         hostname = request.data.get('hostname')
-        print(f"Received upload request from {hostname}")  # Add debug logging
         if not hostname:
             return Response(
                 {'error': 'Hostname is required'},
@@ -129,6 +124,7 @@ def upload_data(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Get or create client
         client, created = Client.objects.get_or_create(
             hostname=hostname,
             defaults={'ip_address': request.META.get('REMOTE_ADDR', '0.0.0.0')}
@@ -140,31 +136,24 @@ def upload_data(request):
 
         # Process the reported processes
         if 'processes' in request.data:
+            Process.objects.filter(client=client).delete()  # Clear old processes
             for proc_data in request.data['processes']:
-                # Validate required process fields
                 if not all(key in proc_data for key in ['pid', 'name']):
-                    return Response(
-                        {'error': 'Process data must include pid and name'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                if proc_data['pid'] != 0:
-                    Process.objects.create(
-                        client=client,
-                        pid=proc_data['pid'],
-                        name=proc_data['name'],
-                        path=proc_data.get('path', ''),
-                        command_line=proc_data.get('commandLine', '')
-                    )
+                    continue
+                Process.objects.create(
+                    client=client,
+                    pid=proc_data['pid'],
+                    name=proc_data['name'],
+                    path=proc_data.get('path', ''),
+                    command_line=proc_data.get('commandLine', '')
+                )
 
         # Process the reported ports
         if 'ports' in request.data:
+            Port.objects.filter(client=client).delete()  # Clear old ports
             for port_data in request.data['ports']:
-                # Validate required port fields
                 if not all(key in port_data for key in ['port', 'protocol', 'state']):
-                    return Response(
-                        {'error': 'Port data must include port, protocol, and state'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    continue
                 Port.objects.create(
                     client=client,
                     port_number=port_data['port'],
@@ -177,26 +166,22 @@ def upload_data(request):
         # Process the reported alerts
         if 'alerts' in request.data:
             for alert_data in request.data['alerts']:
-                # Validate required alert fields
                 if not all(key in alert_data for key in ['type', 'description']):
-                    return Response(
-                        {'error': 'Alert data must include type and description'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    continue
                 SuspiciousActivity.objects.create(
                     client=client,
                     type=alert_data['type'],
                     description=alert_data['description'],
                     process_name=alert_data.get('processName', ''),
-                    process_id=alert_data.get('pid'),
-                    timestamp=timezone.now()
+                    process_id=alert_data.get('pid', 0)
                 )
 
-        # Analyze vulnerabilities
+        # Analyze vulnerabilities for the updated client data
         analyze_vulnerabilities(client)
 
         return Response({'status': 'success'})
     except Exception as e:
+        print(f"Error in upload_data: {str(e)}")  # Add logging for debugging
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

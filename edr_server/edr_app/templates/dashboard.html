@@ -14,7 +14,7 @@
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover" id="activeDevicesTable">
+                        <table class="table" id="activeDevicesTable">
                             <thead>
                                 <tr>
                                     <th>Hostname</th>
@@ -24,22 +24,22 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for client in active_clients %}
-                                <tr>
-                                    <td>{{ client.hostname }}</td>
-                                    <td>{{ client.ip_address }}</td>
-                                    <td>{{ client.last_seen }}</td>
-                                    <td>
-                                        <a href="/device/{{ client.id }}/" class="btn btn-primary btn-sm device-detail-link">
-                                            View Details
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="4" class="text-center">No active devices</td>
-                                </tr>
-                                {% endfor %}
+                                {% if active_clients %}
+                                    {% for client in active_clients %}
+                                    <tr>
+                                        <td>{{ client.hostname }}</td>
+                                        <td>{{ client.ip_address }}</td>
+                                        <td>{{ client.last_seen|date:'Y-m-d H:i:s' }}</td>
+                                        <td>
+                                            <a href="{% url 'device_detail' client.id %}" class="btn btn-primary btn-sm">View Details</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-center">No active devices</td>
+                                    </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -56,7 +56,7 @@
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-hover" id="inactiveDevicesTable">
+                        <table class="table" id="inactiveDevicesTable">
                             <thead>
                                 <tr>
                                     <th>Hostname</th>
@@ -66,22 +66,22 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for client in inactive_clients %}
-                                <tr>
-                                    <td>{{ client.hostname }}</td>
-                                    <td>{{ client.ip_address }}</td>
-                                    <td>{{ client.last_seen }}</td>
-                                    <td>
-                                        <a href="/device/{{ client.id }}/" class="btn btn-primary btn-sm device-detail-link">
-                                            View Details
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="4" class="text-center">No inactive devices</td>
-                                </tr>
-                                {% endfor %}
+                                {% if inactive_clients %}
+                                    {% for client in inactive_clients %}
+                                    <tr>
+                                        <td>{{ client.hostname }}</td>
+                                        <td>{{ client.ip_address }}</td>
+                                        <td>{{ client.last_seen|date:'Y-m-d H:i:s' }}</td>
+                                        <td>
+                                            <a href="{% url 'device_detail' client.id %}" class="btn btn-primary btn-sm">View Details</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-center">No inactive devices</td>
+                                    </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -95,23 +95,23 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
-    // Initialize DataTables
-    $('#activeDevicesTable').DataTable({
-        "order": [[2, "desc"]], // Sort by last seen by default
-        "pageLength": 10
-    });
-    
-    $('#inactiveDevicesTable').DataTable({
-        "order": [[2, "desc"]], // Sort by last seen by default
-        "pageLength": 10
-    });
+    function initTable(tableId) {
+        return $(tableId).DataTable({
+            "pageLength": 10,
+            "lengthMenu": [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
+            "order": [[2, "desc"]],  // Sort by Last Seen column by default
+            "columnDefs": [
+                { "orderable": false, "targets": 3 }  // Disable sorting for Actions column
+            ],
+            "language": {
+                "emptyTable": "No devices found"
+            }
+        });
+    }
 
-    // Add click handler for device detail links
-    $('.device-detail-link').on('click', function(e) {
-        e.preventDefault();
-        var href = $(this).attr('href');
-        window.location.href = href;
-    });
+    // Initialize both tables
+    initTable('#activeDevicesTable');
+    initTable('#inactiveDevicesTable');
 });
 </script>
 {% endblock %}
