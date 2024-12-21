@@ -271,58 +271,51 @@ bool NetworkClient::sendLog(const std::string& level, const std::string& message
     }
 }
 
-std::string NetworkClient::createJsonPayload(const std::vector<ProcessInfo>& processes,
-                               const std::vector<PortInfo>& ports,
-                               const std::vector<SuspiciousActivity>& activities) {
-    try {
-        json payload;
-        
-        char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) == 0) {
-            payload["hostname"] = hostname;
-        } else {
-            payload["hostname"] = "unknown";
-        }
+std::string NetworkClient::createJsonPayload(
+    const std::vector<ProcessInfo>& processes,
+    const std::vector<PortInfo>& ports,
+    const std::vector<SuspiciousActivity>& activities) {
+    
+    nlohmann::json payload;
 
-        json processArray = json::array();
-        for (const auto& process : processes) {
-            json processObj;
-            processObj["pid"] = process.pid;
-            processObj["name"] = process.name;
-            processObj["path"] = process.path;
-            processObj["command_line"] = process.commandLine;
-            processArray.push_back(processObj);
-        }
-        payload["processes"] = processArray;
-
-        json portArray = json::array();
-        for (const auto& port : ports) {
-            json portObj;
-            portObj["port"] = port.port;
-            portObj["protocol"] = port.protocol;
-            portObj["state"] = port.state;
-            portObj["process_id"] = port.pid;
-            portObj["process_name"] = port.processName;
-            portArray.push_back(portObj);
-        }
-        payload["ports"] = portArray;
-
-        json activityArray = json::array();
-        for (const auto& activity : activities) {
-            json activityObj;
-            activityObj["type"] = activity.type;
-            activityObj["description"] = activity.description;
-            activityObj["process_name"] = activity.processName;
-            activityObj["process_id"] = activity.pid;
-            activityArray.push_back(activityObj);
-        }
-        payload["suspicious_activities"] = activityArray;
-
-        return payload.dump();
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating JSON payload: " << e.what() << std::endl;
-        throw;
+    // Add processes
+    nlohmann::json processesArray = nlohmann::json::array();
+    for (const auto& process : processes) {
+        nlohmann::json processObj;
+        processObj["pid"] = process.pid;
+        processObj["name"] = process.name;
+        processObj["path"] = process.path;
+        processObj["owner"] = process.owner;
+        processObj["command_line"] = process.command_line;
+        processesArray.push_back(processObj);
     }
+    payload["processes"] = processesArray;
+
+    // Add ports
+    nlohmann::json portsArray = nlohmann::json::array();
+    for (const auto& port : ports) {
+        nlohmann::json portObj;
+        portObj["port"] = port.port;
+        portObj["protocol"] = port.protocol;
+        portObj["state"] = port.state;
+        portObj["process"] = port.process;
+        portsArray.push_back(portObj);
+    }
+    payload["ports"] = portsArray;
+
+    // Add activities
+    nlohmann::json activitiesArray = nlohmann::json::array();
+    for (const auto& activity : activities) {
+        nlohmann::json activityObj;
+        activityObj["type"] = activity.type;
+        activityObj["description"] = activity.description;
+        activityObj["process_name"] = activity.processName;
+        activityObj["timestamp"] = activity.timestamp;
+        activitiesArray.push_back(activityObj);
+    }
+    payload["activities"] = activitiesArray;
+
+    return payload.dump();
 }
 
 std::string NetworkClient::createLogsPayload(const std::vector<LogEntry>& logs) {
@@ -413,4 +406,75 @@ bool NetworkClient::executeCommand(const std::string& command, std::string& outp
         std::cerr << "Error executing command: " << e.what() << std::endl;
         return false;
     }
+}
+
+bool NetworkClient::hasIncomingCommand() {
+    try {
+        std::string endpoint = serverUrl + "/api/commands/pending/";
+        std::string response;
+        
+        if (sendHttpRequest(stringToWideString(endpoint), "")) {
+            nlohmann::json responseJson = nlohmann::json::parse(response);
+            return responseJson.contains("command");
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error checking for commands: " << e.what() << std::endl;
+    }
+    return false;
+}
+
+nlohmann::json NetworkClient::getCommand() {
+    try {
+        std::string endpoint = serverUrl + "/api/commands/pending/";
+        std::string response;
+        
+        if (sendHttpRequest(stringToWideString(endpoint), "")) {
+            return nlohmann::json::parse(response);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error getting command: " << e.what() << std::endl;
+    }
+    return nlohmann::json();
+}
+
+void NetworkClient::sendResponse(const std::string& response) {
+    try {
+        std::string endpoint = serverUrl + "/api/commands/response/";
+        sendHttpRequest(stringToWideString(endpoint), response);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error sending response: " << e.what() << std::endl;
+    }
+}
+
+bool NetworkClient::receiveHttpResponse(HINTERNET hRequest, std::string& response) {
+    DWORD bytesAvailable;
+    std::string buffer;
+    
+    do {
+        if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable)) {
+            std::cerr << "Error querying data available. Error: " << GetLastError() << std::endl;
+            return false;
+        }
+        
+        if (bytesAvailable == 0) {
+            break;
+        }
+        
+        std::vector<char> tempBuffer(bytesAvailable + 1);
+        DWORD bytesRead;
+        
+        if (!WinHttpReadData(hRequest, tempBuffer.data(), bytesAvailable, &bytesRead)) {
+            std::cerr << "Error reading data. Error: " << GetLastError() << std::endl;
+            return false;
+        }
+        
+        tempBuffer[bytesRead] = '\0';
+        buffer.append(tempBuffer.data(), bytesRead);
+    } while (bytesAvailable > 0);
+    
+    response = buffer;
+    return true;
 }

@@ -1,4 +1,6 @@
 from django.db import models
+import threading
+import uuid
 
 # Create your models here.
 
@@ -6,7 +8,41 @@ class Client(models.Model):
     hostname = models.CharField(max_length=255)
     ip_address = models.GenericIPAddressField()
     last_seen = models.DateTimeField(auto_now=True)
-
+    auth_token = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    
+    # Command handling
+    _pending_command = None
+    _command_response = None
+    _command_event = None
+    
+    def queue_command(self, command):
+        self._pending_command = command
+        self._command_response = None
+        self._command_event = threading.Event()
+    
+    def get_pending_command(self):
+        command = self._pending_command
+        self._pending_command = None
+        return command
+    
+    def set_command_response(self, response):
+        self._command_response = response
+        if self._command_event:
+            self._command_event.set()
+    
+    def wait_for_response(self, timeout=5):
+        if self._command_event and self._command_event.wait(timeout):
+            response = self._command_response
+            self._command_response = None
+            self._command_event = None
+            return response
+        return None
+    
+    def execute_command(self, command):
+        self.queue_command(command)
+        return self.wait_for_response()
+    
     def __str__(self):
         return f"{self.hostname} ({self.ip_address})"
 

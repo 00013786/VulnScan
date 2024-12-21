@@ -5,11 +5,11 @@
 #include <ws2tcpip.h>
 
 struct PortInfo {
-    unsigned short port;
+    int port;
     std::string protocol;
     std::string state;
     std::string processName;
-    DWORD pid;
+    std::string process;
 };
 
 class PortScanner {

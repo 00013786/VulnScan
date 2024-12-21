@@ -1,6 +1,7 @@
 #include "port_scanner.h"
 #include <iphlpapi.h>
 #include <iostream>
+#include <vector>
 
 #pragma comment(lib, "iphlpapi.lib")
 
@@ -23,55 +24,60 @@ void PortScanner::cleanup() {
 std::vector<PortInfo> PortScanner::scanPorts() {
     std::vector<PortInfo> ports;
     
-    // Get TCP table
-    PMIB_TCPTABLE_OWNER_PID pTcpTable;
-    DWORD dwSize = 0;
-    DWORD dwRetVal = 0;
-
-    // Make an initial call to GetTcpTable to get the necessary size into the dwSize variable
-    if (GetExtendedTcpTable(NULL, &dwSize, TRUE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) ==
-        ERROR_INSUFFICIENT_BUFFER) {
-        pTcpTable = (PMIB_TCPTABLE_OWNER_PID)new char[dwSize];
-        if (pTcpTable == NULL) {
-            return ports;
-        }
+    // Get the size needed for the TCP table
+    DWORD size = 0;
+    DWORD result = GetExtendedTcpTable(NULL, &size, TRUE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
+    if (result != ERROR_INSUFFICIENT_BUFFER) {
+        return ports;
     }
-
-    // Make a second call to GetTcpTable to get the actual data we require
-    if ((dwRetVal = GetExtendedTcpTable(pTcpTable, &dwSize, TRUE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)) ==
-        NO_ERROR) {
-        for (DWORD i = 0; i < pTcpTable->dwNumEntries; i++) {
-            PortInfo info;
-            info.port = ntohs((u_short)pTcpTable->table[i].dwLocalPort);
-            info.protocol = "TCP";
-            info.pid = pTcpTable->table[i].dwOwningPid;
-            
-            // Get process name from PID
-            HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, info.pid);
-            if (processHandle) {
-                char processName[MAX_PATH];
-                DWORD size = MAX_PATH;
-                if (QueryFullProcessImageNameA(processHandle, 0, processName, &size)) {
-                    info.processName = processName;
-                }
-                CloseHandle(processHandle);
-            }
-
-            switch (pTcpTable->table[i].dwState) {
-                case MIB_TCP_STATE_LISTEN:
-                    info.state = "LISTENING";
-                    break;
-                case MIB_TCP_STATE_ESTAB:
-                    info.state = "ESTABLISHED";
-                    break;
-                default:
-                    info.state = "OTHER";
-            }
-
-            ports.push_back(info);
-        }
+    
+    // Allocate memory for the TCP table
+    std::vector<BYTE> buffer(size);
+    PMIB_TCPTABLE_OWNER_PID pTcpTable = reinterpret_cast<PMIB_TCPTABLE_OWNER_PID>(buffer.data());
+    
+    // Get the actual TCP table
+    result = GetExtendedTcpTable(pTcpTable, &size, TRUE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
+    if (result != NO_ERROR) {
+        return ports;
     }
-
-    delete[] pTcpTable;
+    
+    // Iterate through the TCP table
+    for (DWORD i = 0; i < pTcpTable->dwNumEntries; i++) {
+        PortInfo info;
+        info.port = ntohs(static_cast<u_short>(pTcpTable->table[i].dwLocalPort));
+        info.protocol = "TCP";
+        
+        // Get process information
+        DWORD pid = pTcpTable->table[i].dwOwningPid;
+        HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (processHandle != NULL) {
+            char processName[MAX_PATH];
+            DWORD size = sizeof(processName);
+            if (QueryFullProcessImageNameA(processHandle, 0, processName, &size)) {
+                info.processName = processName;
+                info.process = std::to_string(pid) + " (" + processName + ")";
+            }
+            CloseHandle(processHandle);
+        }
+        
+        // Get connection state
+        switch (pTcpTable->table[i].dwState) {
+            case MIB_TCP_STATE_CLOSED:
+                info.state = "CLOSED";
+                break;
+            case MIB_TCP_STATE_LISTEN:
+                info.state = "LISTENING";
+                break;
+            case MIB_TCP_STATE_ESTAB:
+                info.state = "ESTABLISHED";
+                break;
+            default:
+                info.state = "OTHER";
+                break;
+        }
+        
+        ports.push_back(info);
+    }
+    
     return ports;
 }

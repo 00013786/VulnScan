@@ -6,7 +6,6 @@
 struct SuspiciousActivity {
     std::string type;
     std::string description;
-    DWORD pid;
     std::string processName;
     std::string timestamp;
 };
@@ -14,8 +13,10 @@ struct SuspiciousActivity {
 class BehaviorMonitor {
 public:
     std::vector<SuspiciousActivity> checkForSuspiciousActivities();
-private:
-    bool checkProcessInjection(DWORD pid, std::string& processName);
     bool checkUnusualConnections();
-    bool checkSuspiciousFileOperations();
+
+private:
+    bool isSuspiciousProcessName(const std::string& processName);
+    bool hasHighMemoryUsage(HANDLE hProcess);
+    bool hasSuspiciousThreads(HANDLE hProcess);
 };

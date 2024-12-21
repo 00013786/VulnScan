@@ -23,6 +23,7 @@ urlpatterns = [
     path('api/logs/upload/', views.upload_logs, name='upload_logs'),
     path('api/logs/windows/', views.upload_windows_logs, name='upload_windows_logs'),
     path('api/clients/<int:client_id>/kill_process/<int:process_id>/', views.kill_process, name='kill_process'),
+    path('api/clients/<int:client_id>/command/', views.client_command, name='client_command'),
 ]
 
 urlpatterns += router.urls

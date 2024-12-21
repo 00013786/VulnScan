@@ -42,20 +42,24 @@ public:
     
     bool sendLog(const std::string& level, const std::string& message, const std::string& source);
     void sendLog(const std::string& jsonData);
+    bool hasIncomingCommand();
+    nlohmann::json getCommand();
+    void sendResponse(const std::string& response);
     void checkAndSendLogs();
     void uploadData(const std::string& data);
     bool executeCommand(const std::string& command, std::string& output);
-
-protected:
     std::string createJsonPayload(const std::vector<ProcessInfo>& processes,
                                 const std::vector<PortInfo>& ports,
                                 const std::vector<SuspiciousActivity>& activities);
+
+protected:
     std::string createLogsPayload(const std::vector<LogEntry>& logs);
     bool sendQueuedLogs();
     std::wstring stringToWideString(const std::string& str);
 
 private:
-    bool sendHttpRequest(const std::wstring& path, const std::string& data);
+    bool sendHttpRequest(const std::wstring& endpoint, const std::string& jsonData);
+    bool receiveHttpResponse(HINTERNET hRequest, std::string& response);
     bool isInitialized;
     std::string serverUrl;
     std::string authToken;

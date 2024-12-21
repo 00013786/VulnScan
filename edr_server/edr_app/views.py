@@ -618,23 +618,77 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 @login_required
 def kill_process(request, client_id, process_id):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method is allowed'})
+        
     try:
         client = get_object_or_404(Client, id=client_id)
         
         # Create kill process command
         command = {
             'action': 'kill_process',
-            'process_id': process_id
+            'process_id': int(process_id)
         }
         
-        # Send command to client
-        response = client.execute_command(command)
+        # Queue command for client
+        client.queue_command(command)
         
+        # Wait for response (with timeout)
+        response = client.wait_for_response(timeout=5)  # 5 seconds timeout
+        
+        if response is None:
+            return JsonResponse({
+                'success': False,
+                'error': 'Timeout waiting for client response',
+                'requires_manual': True
+            })
+            
         if response.get('success'):
-            messages.success(request, f'Successfully terminated process {process_id}')
+            # Verify process is terminated
+            verify_command = {
+                'action': 'verify_process',
+                'process_id': int(process_id)
+            }
+            verify_response = client.execute_command(verify_command)
+            
+            if verify_response.get('is_running', True):
+                return JsonResponse({
+                    'success': False,
+                    'error': f'Process {process_id} could not be terminated automatically. Manual intervention may be required.',
+                    'requires_manual': True
+                })
+            else:
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Successfully terminated process {process_id}'
+                })
         else:
-            messages.error(request, f'Failed to terminate process {process_id}: {response.get("error")}')
-        
-        return JsonResponse({'success': True})
+            return JsonResponse({
+                'success': False,
+                'error': f'Failed to terminate process {process_id}: {response.get("error", "Unknown error")}',
+                'requires_manual': True
+            })
+            
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'requires_manual': True
+        })
+
+@login_required
+def client_command(request, client_id):
+    if request.method == 'GET':
+        # Client checking for commands
+        client = get_object_or_404(Client, id=client_id)
+        command = client.get_pending_command()
+        return JsonResponse({'command': command} if command else {})
+        
+    elif request.method == 'POST':
+        # Client sending command response
+        client = get_object_or_404(Client, id=client_id)
+        response_data = json.loads(request.body)
+        client.set_command_response(response_data)
+        return JsonResponse({'success': True})
+        
+    return JsonResponse({'success': False, 'error': 'Invalid method'})

@@ -69,6 +69,10 @@ function refreshData() {
 
 function killProcess(clientId, processId) {
     if (confirm('Are you sure you want to terminate this process?')) {
+        const button = event.target.closest('button');
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Terminating...';
+
         fetch(`/api/clients/${clientId}/kill_process/${processId}/`, {
             method: 'POST',
             headers: {
@@ -78,17 +82,45 @@ function killProcess(clientId, processId) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Refresh the page to show updated process list
-                location.reload();
+                showAlert('success', data.message);
+                // Refresh the page after a short delay
+                setTimeout(() => location.reload(), 1500);
             } else {
-                alert('Failed to terminate process: ' + data.error);
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-times"></i> Kill';
+                
+                if (data.requires_manual) {
+                    showAlert('warning', data.error + ' Please try terminating the process manually.');
+                } else {
+                    showAlert('error', data.error);
+                }
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Failed to terminate process');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-times"></i> Kill';
+            showAlert('error', 'Failed to terminate process. Please try again.');
         });
     }
+}
+
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    const container = document.querySelector('.container');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        alertDiv.classList.remove('show');
+        setTimeout(() => alertDiv.remove(), 150);
+    }, 5000);
 }
 </script>
 {% endblock %}

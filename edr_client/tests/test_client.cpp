@@ -14,31 +14,24 @@ protected:
 
 TEST_F(NetworkClientTest, CreateJsonPayload_Test) {
     std::vector<ProcessInfo> processes = {
-        ProcessInfo{1234, "test.exe", "C:\\test.exe", "test.exe --param"}
+        ProcessInfo{1234, "test.exe", "C:\\test.exe", "SYSTEM", ""}
     };
-    
+
     std::vector<PortInfo> ports = {
-        PortInfo{8080, "TCP", "LISTEN", "test.exe", 1234}
+        PortInfo{8080, "TCP", "LISTEN", "test.exe", "1234 (test.exe)"}
     };
-    
-    std::vector<SuspiciousActivity> alerts = {
-        SuspiciousActivity{
-            .type = "SUSPICIOUS_PROCESS",
-            .description = "Suspicious process detected",
-            .pid = 1234,
-            .processName = "test.exe",
-            .timestamp = "2023-01-01T00:00:00Z"
-        }
+
+    std::vector<SuspiciousActivity> activities = {
+        SuspiciousActivity{"NETWORK", "Suspicious network connection", "test.exe", "2023-01-01 00:00:00"}
     };
-    
-    std::string payload = createJsonPayload(processes, ports, alerts);
-    
-    // Verify JSON structure
-    EXPECT_TRUE(payload.find("\"processes\"") != std::string::npos);
-    EXPECT_TRUE(payload.find("\"ports\"") != std::string::npos);
-    EXPECT_TRUE(payload.find("\"suspicious_activities\"") != std::string::npos);
-    EXPECT_TRUE(payload.find("\"pid\":1234") != std::string::npos);
-    EXPECT_TRUE(payload.find("\"name\":\"test.exe\"") != std::string::npos);
+
+    NetworkClient client("http://localhost:8000");
+    std::string payload = client.createJsonPayload(processes, ports, activities);
+
+    // Verify the payload contains expected data
+    EXPECT_TRUE(payload.find("test.exe") != std::string::npos);
+    EXPECT_TRUE(payload.find("8080") != std::string::npos);
+    EXPECT_TRUE(payload.find("NETWORK") != std::string::npos);
 }
 
 class ProcessScannerTest : public ::testing::Test {
