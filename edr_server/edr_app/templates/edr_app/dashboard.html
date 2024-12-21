@@ -1,0 +1,91 @@
+{% extends 'edr_app/base.html' %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">Dashboard</h1>
+
+    <!-- Active Devices -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="card-title mb-0">
+                <i class="bi bi-pc-display"></i> Active Devices ({{ active_clients|length }})
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if active_clients %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Hostname</th>
+                                <th>IP Address</th>
+                                <th>Last Seen</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for client in active_clients %}
+                                <tr>
+                                    <td>{{ client.hostname }}</td>
+                                    <td>{{ client.ip_address }}</td>
+                                    <td>{{ client.last_seen|timesince }} ago</td>
+                                    <td>
+                                        <a href="{% url 'device_detail' client.id %}" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No active devices found.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Inactive Devices -->
+    <div class="card">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="card-title mb-0">
+                <i class="bi bi-pc-display"></i> Inactive Devices ({{ inactive_clients|length }})
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if inactive_clients %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Hostname</th>
+                                <th>IP Address</th>
+                                <th>Last Seen</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for client in inactive_clients %}
+                                <tr>
+                                    <td>{{ client.hostname }}</td>
+                                    <td>{{ client.ip_address }}</td>
+                                    <td>{{ client.last_seen|timesince }} ago</td>
+                                    <td>
+                                        <a href="{% url 'device_detail' client.id %}" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No inactive devices found.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

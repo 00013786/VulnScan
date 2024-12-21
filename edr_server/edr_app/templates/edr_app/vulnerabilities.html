@@ -1,0 +1,95 @@
+{% extends 'edr_app/base.html' %}
+
+{% block title %}Vulnerabilities{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">Vulnerabilities</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-shield-exclamation"></i> Vulnerability List
+                </h5>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-primary" onclick="refreshData()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="vulnerabilityTable">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Severity</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>CVE</th>
+                            <th>Match Type</th>
+                            <th>Confidence</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for vuln in vulnerabilities %}
+                            <tr>
+                                <td>{{ vuln.client.hostname }}</td>
+                                <td>
+                                    <span class="badge {% if vuln.severity == 'CRITICAL' %}bg-danger{% elif vuln.severity == 'HIGH' %}bg-warning{% else %}bg-info{% endif %}">
+                                        {{ vuln.severity }}
+                                    </span>
+                                </td>
+                                <td>{{ vuln.title }}</td>
+                                <td>{{ vuln.description|truncatechars:100 }}</td>
+                                <td>
+                                    {% if vuln.cve_id %}
+                                        <a href="https://nvd.nist.gov/vuln/detail/{{ vuln.cve_id }}" target="_blank">
+                                            {{ vuln.cve_id }}
+                                        </a>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ vuln.match_type }}</td>
+                                <td>
+                                    <div class="progress">
+                                        <div class="progress-bar {% if vuln.confidence_score >= 0.8 %}bg-danger{% elif vuln.confidence_score >= 0.5 %}bg-warning{% else %}bg-info{% endif %}"
+                                             role="progressbar"
+                                             style="width: {{ vuln.confidence_score|floatformat:0 }}%"
+                                             aria-valuenow="{{ vuln.confidence_score|floatformat:0 }}"
+                                             aria-valuemin="0"
+                                             aria-valuemax="100">
+                                            {{ vuln.confidence_score|floatformat:0 }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <a href="{% url 'device_detail' vuln.client.id %}" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-eye"></i> View Device
+                                    </a>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center">No vulnerabilities found</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshData() {
+    location.reload();
+}
+</script>
+{% endblock %}

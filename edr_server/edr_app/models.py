@@ -91,3 +91,23 @@ class VulnerabilityMatch(models.Model):
 
     def __str__(self):
         return f"{self.vulnerability.cve_id} - {self.match_type} - {self.confidence_score}"
+
+class Log(models.Model):
+    LOG_LEVELS = [
+        ('INFO', 'Info'),
+        ('WARNING', 'Warning'),
+        ('ERROR', 'Error'),
+        ('DEBUG', 'Debug'),
+    ]
+    
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='logs')
+    level = models.CharField(max_length=10, choices=LOG_LEVELS, default='INFO')
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(max_length=255, help_text="Source of the log (e.g., component name)")
+
+    def __str__(self):
+        return f"[{self.level}] {self.client.hostname}: {self.message[:50]}"
+
+    class Meta:
+        ordering = ['-timestamp']

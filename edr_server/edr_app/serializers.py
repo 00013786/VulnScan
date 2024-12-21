@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Process, Port, SuspiciousActivity, Vulnerability
+from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, Log
 
 class ProcessSerializer(serializers.ModelSerializer):
     class Meta:
@@ -20,6 +20,14 @@ class VulnerabilitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Vulnerability
         fields = ['cve_id', 'description', 'severity', 'published_date', 'last_modified_date']
+
+class LogSerializer(serializers.ModelSerializer):
+    client_hostname = serializers.CharField(source='client.hostname', read_only=True)
+    
+    class Meta:
+        model = Log
+        fields = ['id', 'client', 'client_hostname', 'level', 'message', 'timestamp', 'source']
+        read_only_fields = ['id', 'client_hostname', 'timestamp']
 
 class ClientSerializer(serializers.ModelSerializer):
     processes = ProcessSerializer(many=True, read_only=True)

@@ -6,7 +6,7 @@
     <title>{% block title %}EDR Dashboard{% endblock %}</title>
     <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <style>
         body {
@@ -20,8 +20,23 @@
         .table th, .table td {
             vertical-align: middle;
         }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+        }
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid rgba(0,0,0,.125);
+        }
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,0,0,.075);
+        }
+        .badge {
+            padding: 0.5em 0.75em;
+        }
         .timestamp {
             min-width: 150px;
+            white-space: nowrap;
         }
         .process-name {
             min-width: 200px;
@@ -50,198 +65,100 @@
         .severity {
             min-width: 70px;
         }
-        .sidebar {
-            position: fixed;
-            top: 56px; /* Height of navbar */
-            bottom: 0;
-            left: 0;
-            width: 250px;
-            z-index: 100;
-            padding: 20px 0;
-            overflow-x: hidden;
-            overflow-y: auto;
-            background-color: #f8f9fa;
-            border-right: 1px solid #dee2e6;
-            transform: translateX(-100%);
-            transition: transform 0.3s ease-in-out;
-        }
-        
-        .sidebar.show {
-            transform: translateX(0);
-        }
-
-        .main-content {
-            margin-left: 0;
-            transition: margin-left 0.3s ease-in-out;
-        }
-
-        .main-content.sidebar-open {
-            margin-left: 250px;
-        }
-
-        @media (max-width: 768px) {
-            .main-content.sidebar-open {
-                margin-left: 0;
-            }
-        }
-        .dataTables_wrapper .dataTables_length {
-            margin-bottom: 1rem;
-        }
-        .dataTables_wrapper .dataTables_filter {
-            margin-bottom: 1rem;
-        }
-        .entries-select {
-            min-width: 70px;
-        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid">
+            <a class="navbar-brand" href="{% url 'dashboard' %}">
+                <i class="fas fa-shield-alt"></i> EDR Dashboard
+            </a>
             {% if user.is_authenticated %}
-            <button class="navbar-toggler me-2" type="button" id="sidebarToggle">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <a class="navbar-brand" href="{% url 'dashboard' %}">EDR Dashboard</a>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'dashboard' %}">Dashboard</a>
+                        <a class="nav-link" href="{% url 'dashboard' %}">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'processes' %}">Processes</a>
+                        <a class="nav-link" href="{% url 'processes' %}">
+                            <i class="fas fa-tasks"></i> Processes
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'ports' %}">Ports</a>
+                        <a class="nav-link" href="{% url 'ports' %}">
+                            <i class="fas fa-plug"></i> Ports
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'alerts' %}">Alerts</a>
+                        <a class="nav-link" href="{% url 'alerts' %}">
+                            <i class="fas fa-exclamation-triangle"></i> Alerts
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'vulnerabilities' %}">Vulnerabilities</a>
+                        <a class="nav-link" href="{% url 'vulnerabilities' %}">
+                            <i class="fas fa-bug"></i> Vulnerabilities
+                        </a>
                     </li>
                 </ul>
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav">
                     <li class="nav-item">
-                        <span class="nav-link">Welcome, {{ user.username }}</span>
+                        <a class="nav-link" href="{% url 'admin:index' %}">
+                            <i class="fas fa-cog"></i> Admin
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'logout' %}">Logout</a>
+                        <a class="nav-link" href="{% url 'logout' %}">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
                     </li>
                 </ul>
             </div>
-            {% else %}
-            <a class="navbar-brand mx-auto" href="{% url 'login' %}">EDR Dashboard</a>
             {% endif %}
         </div>
     </nav>
 
-    <!-- Sidebar -->
-    <nav id="sidebar" class="sidebar">
-        <div class="position-sticky">
-            <ul class="nav flex-column">
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
-                        <i class="fa fa-dashboard"></i> Dashboard
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'processes' %}active{% endif %}" href="{% url 'processes' %}">
-                        <i class="fa fa-tasks"></i> Processes
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'ports' %}active{% endif %}" href="{% url 'ports' %}">
-                        <i class="fa fa-plug"></i> Ports
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'alerts' %}active{% endif %}" href="{% url 'alerts' %}">
-                        <i class="fa fa-exclamation-triangle"></i> Alerts
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'vulnerabilities' %}active{% endif %}" href="{% url 'vulnerabilities' %}">
-                        <i class="fa fa-bug"></i> Vulnerabilities
-                    </a>
-                </li>
-            </ul>
-        </div>
-    </nav>
-
     <!-- Main Content -->
-    <div class="container-fluid">
-        <div class="row">
-            <main class="main-content col px-md-4">
-                {% block content %}
-                {% endblock %}
-            </main>
+    <main class="container-fluid">
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
         </div>
-    </div>
+        {% endif %}
+
+        {% block content %}
+        {% endblock %}
+    </main>
 
     <!-- JavaScript -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
     
-    <!-- Custom JavaScript -->
+    <!-- DataTables Initialization -->
     <script>
-        // Set up CSRF token for AJAX requests
-        var csrftoken = '{{ csrf_token }}';
-        $.ajaxSetup({
-            beforeSend: function(xhr, settings) {
-                if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
-                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                }
-            }
+        $(document).ready(function() {
+            $('.table').DataTable({
+                "order": [[0, "desc"]],
+                "pageLength": 25,
+                "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]]
+            });
         });
     </script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.querySelector('.main-content');
-        const sidebarToggle = document.getElementById('sidebarToggle');
-        let isMouseOverSidebar = false;
 
-        // Toggle sidebar on button click
-        sidebarToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            sidebar.classList.add('show');
-            mainContent.classList.add('sidebar-open');
-        });
-
-        // Handle mouse enter on sidebar
-        sidebar.addEventListener('mouseenter', function() {
-            isMouseOverSidebar = true;
-        });
-
-        // Handle mouse leave on sidebar
-        sidebar.addEventListener('mouseleave', function() {
-            isMouseOverSidebar = false;
-            sidebar.classList.remove('show');
-            mainContent.classList.remove('sidebar-open');
-        });
-
-        // Close sidebar when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
-                sidebar.classList.remove('show');
-                mainContent.classList.remove('sidebar-open');
-            }
-        });
-
-        // Handle active link highlighting
-        const currentPath = window.location.pathname;
-        document.querySelectorAll('.nav-link').forEach(link => {
-            if (link.getAttribute('href') === currentPath) {
-                link.classList.add('active');
-            }
-        });
-    });
-    </script>
-    {% block extra_js %}{% endblock %}
+    {% block extra_js %}
+    {% endblock %}
 </body>
 </html>

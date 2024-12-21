@@ -1,0 +1,41 @@
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="fas fa-network-wired"></i> Open Ports
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Port</th>
+                        <th>Protocol</th>
+                        <th>State</th>
+                        <th>Service</th>
+                        <th>Version</th>
+                        <th>Process</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for port in ports %}
+                    <tr>
+                        <td>{{ port.port_number }}</td>
+                        <td>{{ port.protocol }}</td>
+                        <td>{{ port.state }}</td>
+                        <td>{{ port.service_name|default:"Unknown" }}</td>
+                        <td>{{ port.service_version|default:"Unknown" }}</td>
+                        <td>{{ port.process_name }} ({{ port.process_id }})</td>
+                        <td>{{ port.timestamp|date:"Y-m-d H:i:s" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center">No open ports found</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

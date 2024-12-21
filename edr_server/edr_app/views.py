@@ -1,4 +1,4 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
@@ -11,14 +11,19 @@ from django.utils import timezone
 from datetime import timedelta
 import requests
 import json
-from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, VulnerabilityMatch
+from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, VulnerabilityMatch, Log
 from .serializers import (
     ClientSerializer, ProcessSerializer, PortSerializer,
-    SuspiciousActivitySerializer, VulnerabilitySerializer
+    SuspiciousActivitySerializer, VulnerabilitySerializer, LogSerializer
 )
 from .utils import analyze_vulnerabilities
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+
+def home(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+    return redirect('login')
 
 @login_required
 def dashboard(request):
@@ -36,7 +41,7 @@ def dashboard(request):
         'active_clients': active_clients,
         'inactive_clients': inactive_clients,
     }
-    return render(request, 'dashboard.html', context)
+    return render(request, 'edr_app/dashboard.html', context)
 
 @login_required
 def device_detail(request, device_id):
@@ -46,6 +51,7 @@ def device_detail(request, device_id):
     processes = Process.objects.filter(client=client).exclude(pid=0).order_by('-timestamp')[:50]
     ports = Port.objects.filter(client=client).order_by('-timestamp')[:50]
     alerts = SuspiciousActivity.objects.filter(client=client).order_by('-timestamp')[:20]
+    logs = Log.objects.filter(client=client).order_by('-timestamp')[:100]
     
     # Analyze vulnerabilities
     analyze_vulnerabilities(client)
@@ -66,15 +72,16 @@ def device_detail(request, device_id):
         'process_vulnerabilities': process_vulnerabilities,
         'service_vulnerabilities': service_vulnerabilities,
         'port_vulnerabilities': port_vulnerabilities,
+        'logs': logs,
         'clients': clients,
     }
-    return render(request, 'device_detail.html', context)
+    return render(request, 'edr_app/device_detail.html', context)
 
 @login_required
 def processes(request):
     processes = Process.objects.select_related('client').exclude(pid=0).order_by('-timestamp')
     clients = Client.objects.all().order_by('hostname')
-    return render(request, 'processes.html', {
+    return render(request, 'edr_app/processes.html', {
         'processes': processes,
         'clients': clients,
     })
@@ -83,7 +90,7 @@ def processes(request):
 def ports(request):
     ports = Port.objects.select_related('client').order_by('-timestamp')
     clients = Client.objects.all().order_by('hostname')
-    return render(request, 'ports.html', {
+    return render(request, 'edr_app/ports.html', {
         'ports': ports,
         'clients': clients,
     })
@@ -94,15 +101,150 @@ def alerts(request):
     context = {
         'alerts': alerts,
     }
-    return render(request, 'alerts.html', context)
+    return render(request, 'edr_app/alerts.html', context)
 
 @login_required
 def vulnerabilities(request):
-    vulnerabilities = Vulnerability.objects.all().order_by('-published_date')
+    # Get all vulnerability matches with related data
+    vulnerabilities = VulnerabilityMatch.objects.select_related(
+        'vulnerability', 'client', 'process', 'port'
+    ).order_by('-timestamp')
+
+    # Convert confidence scores from 0-1 to 0-100
+    for vuln in vulnerabilities:
+        vuln.confidence_score = vuln.confidence_score * 100
+
     context = {
         'vulnerabilities': vulnerabilities,
     }
-    return render(request, 'vulnerabilities.html', context)
+    return render(request, 'edr_app/vulnerabilities.html', context)
+
+from django.shortcuts import render
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.paginator import Paginator
+from django.contrib.admin.views.decorators import staff_member_required
+from .models import Client, Process, Port, SuspiciousActivity, Log
+import json
+import csv
+from datetime import datetime
+
+@staff_member_required
+def view_logs(request):
+    # Get filter parameters
+    level = request.GET.get('level', '')
+    client_id = request.GET.get('client', '')
+    date_str = request.GET.get('date', '')
+
+    # Start with all logs
+    logs = Log.objects.select_related('client').all().order_by('-timestamp')
+
+    # Apply filters
+    if level:
+        logs = logs.filter(level=level)
+    if client_id:
+        logs = logs.filter(client_id=client_id)
+    if date_str:
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            logs = logs.filter(timestamp__date=date)
+        except ValueError:
+            pass
+
+    # Pagination
+    paginator = Paginator(logs, 50)  # Show 50 logs per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'logs': page_obj,
+        'log_levels': Log.LOG_LEVELS,
+        'clients': Client.objects.all(),
+        'selected_level': level,
+        'selected_client': client_id,
+        'selected_date': datetime.strptime(date_str, '%Y-%m-%d') if date_str else None,
+    }
+    return render(request, 'edr_app/logs.html', context)
+
+@staff_member_required
+def download_logs(request):
+    # Get filter parameters
+    level = request.GET.get('level', '')
+    client_id = request.GET.get('client', '')
+    date_str = request.GET.get('date', '')
+
+    # Start with all logs
+    logs = Log.objects.select_related('client').all().order_by('-timestamp')
+
+    # Apply filters
+    if level:
+        logs = logs.filter(level=level)
+    if client_id:
+        logs = logs.filter(client_id=client_id)
+    if date_str:
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            logs = logs.filter(timestamp__date=date)
+        except ValueError:
+            pass
+
+    # Create the HttpResponse object with CSV header
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="logs.csv"'
+
+    # Create CSV writer
+    writer = csv.writer(response)
+    writer.writerow(['Timestamp', 'Client', 'Level', 'Source', 'Message'])
+
+    # Write data
+    for log in logs:
+        writer.writerow([
+            log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            log.client.hostname,
+            log.level,
+            log.source,
+            log.message
+        ])
+
+    return response
+
+@csrf_exempt
+def upload_logs(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        logs_data = data.get('logs', [])
+
+        # Get or create client based on hostname
+        hostname = logs_data[0].get('hostname') if logs_data else None
+        if not hostname:
+            return JsonResponse({'error': 'Hostname is required'}, status=400)
+
+        client, _ = Client.objects.get_or_create(
+            hostname=hostname,
+            defaults={'ip_address': request.META.get('REMOTE_ADDR', '0.0.0.0')}
+        )
+
+        # Create logs
+        logs_to_create = []
+        for log_data in logs_data:
+            logs_to_create.append(Log(
+                client=client,
+                level=log_data.get('level', 'INFO'),
+                message=log_data.get('message', ''),
+                source=log_data.get('source', ''),
+                timestamp=datetime.fromtimestamp(log_data.get('timestamp', 0))
+            ))
+
+        Log.objects.bulk_create(logs_to_create)
+        return JsonResponse({'message': f'Successfully created {len(logs_to_create)} logs'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 @csrf_exempt
 @api_view(['POST'])
@@ -136,17 +278,23 @@ def upload_data(request):
 
         # Process the reported processes
         if 'processes' in request.data:
-            Process.objects.filter(client=client).delete()  # Clear old processes
+            # First validate all process data
+            valid_processes = []
             for proc_data in request.data['processes']:
-                if not all(key in proc_data for key in ['pid', 'name']):
-                    continue
-                Process.objects.create(
-                    client=client,
-                    pid=proc_data['pid'],
-                    name=proc_data['name'],
-                    path=proc_data.get('path', ''),
-                    command_line=proc_data.get('commandLine', '')
-                )
+                if all(key in proc_data for key in ['pid', 'name']):
+                    valid_processes.append(proc_data)
+                
+            # Only delete old processes if we have valid new data
+            if valid_processes:
+                Process.objects.filter(client=client).delete()  # Clear old processes
+                for proc_data in valid_processes:
+                    Process.objects.create(
+                        client=client,
+                        pid=proc_data['pid'],
+                        name=proc_data['name'],
+                        path=proc_data.get('path', ''),
+                        command_line=proc_data.get('commandLine', '')
+                    )
 
         # Process the reported ports
         if 'ports' in request.data:
@@ -187,6 +335,7 @@ def upload_data(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
@@ -306,3 +455,21 @@ class ClientViewSet(viewsets.ModelViewSet):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=['post'])
+    def logs(self, request, pk=None):
+        """
+        Endpoint for receiving logs from a client
+        """
+        client = self.get_object()
+        data = request.data
+        
+        # Create log entry
+        log = Log.objects.create(
+            client=client,
+            level=data.get('level', 'INFO'),
+            message=data.get('message', ''),
+            source=data.get('source', '')
+        )
+        
+        return Response(LogSerializer(log).data, status=status.HTTP_201_CREATED)

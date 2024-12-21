@@ -1,0 +1,125 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .log-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+    .log-table th, .log-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+        text-align: left;
+    }
+    .log-table th {
+        background-color: #f5f5f5;
+    }
+    .log-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    .log-level {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    .log-level-INFO { background-color: #d1ecf1; color: #0c5460; }
+    .log-level-WARNING { background-color: #fff3cd; color: #856404; }
+    .log-level-ERROR { background-color: #f8d7da; color: #721c24; }
+    .log-level-DEBUG { background-color: #e2e3e5; color: #383d41; }
+    .download-btn {
+        display: inline-block;
+        padding: 10px 20px;
+        background-color: #417690;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        margin: 10px 0;
+    }
+    .download-btn:hover {
+        background-color: #2c5170;
+        color: white;
+    }
+    .filters {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+    }
+    .filters select, .filters input {
+        margin-right: 10px;
+        padding: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>System Logs</h1>
+    
+    <div class="filters">
+        <form method="get">
+            <select name="level">
+                <option value="">All Levels</option>
+                {% for level in log_levels %}
+                <option value="{{ level.0 }}" {% if selected_level == level.0 %}selected{% endif %}>{{ level.1 }}</option>
+                {% endfor %}
+            </select>
+            <select name="client">
+                <option value="">All Clients</option>
+                {% for client in clients %}
+                <option value="{{ client.id }}" {% if selected_client == client.id %}selected{% endif %}>{{ client.hostname }}</option>
+                {% endfor %}
+            </select>
+            <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}" />
+            <button type="submit">Filter</button>
+        </form>
+    </div>
+
+    <a href="{% url 'download_logs' %}?level={{ selected_level }}&client={{ selected_client }}&date={{ selected_date|date:'Y-m-d' }}" class="download-btn">
+        Download Logs (CSV)
+    </a>
+
+    <table class="log-table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Client</th>
+                <th>Level</th>
+                <th>Source</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.timestamp }}</td>
+                <td>{{ log.client.hostname }}</td>
+                <td><span class="log-level log-level-{{ log.level }}">{{ log.level }}</span></td>
+                <td>{{ log.source }}</td>
+                <td>{{ log.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        <span class="step-links">
+            {% if logs.has_previous %}
+                <a href="?page=1{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">&laquo; first</a>
+                <a href="?page={{ logs.previous_page_number }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">previous</a>
+            {% endif %}
+
+            <span class="current">
+                Page {{ logs.number }} of {{ logs.paginator.num_pages }}
+            </span>
+
+            {% if logs.has_next %}
+                <a href="?page={{ logs.next_page_number }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">next</a>
+                <a href="?page={{ logs.paginator.num_pages }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">last &raquo;</a>
+            {% endif %}
+        </span>
+    </div>
+</div>
+{% endblock %}

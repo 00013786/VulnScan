@@ -6,16 +6,34 @@
 #include <string>
 #include <codecvt>
 #include <locale>
+#include <nlohmann/json.hpp>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ws2_32.lib")
 
-NetworkClient::NetworkClient(const std::string& url) {
-    // Convert std::string to std::wstring using wstring_convert
-    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-    serverUrl = converter.from_bytes(url);
-    hSession = NULL;
-    hConnect = NULL;
+using json = nlohmann::json;
+
+std::mutex logMutex;
+std::chrono::system_clock::time_point lastLogSent;
+
+NetworkClient::NetworkClient(const std::string& serverUrl) {
+    // Convert server URL to wide string
+    std::wstring wServerUrl(serverUrl.begin(), serverUrl.end());
+    this->serverUrl = wServerUrl;
+    
+    // Get hostname
+    char hostnameBuffer[256];
+    if (gethostname(hostnameBuffer, sizeof(hostnameBuffer)) == 0) {
+        hostname = hostnameBuffer;
+    } else {
+        hostname = "unknown";
+    }
+    
+    lastLogSent = std::chrono::system_clock::now();
+    if (!initialize()) {
+        std::cerr << "Failed to initialize network client" << std::endl;
+        throw std::runtime_error("Failed to initialize network client");
+    }
 }
 
 NetworkClient::~NetworkClient() {
@@ -29,22 +47,112 @@ bool NetworkClient::initialize() {
                           WINHTTP_NO_PROXY_NAME,
                           WINHTTP_NO_PROXY_BYPASS,
                           0);
-    return hSession != NULL;
+    if (hSession == NULL) {
+        std::cerr << "Failed to create WinHTTP session" << std::endl;
+        return false;
+    }
+    return true;
 }
 
 bool NetworkClient::sendData(const std::vector<ProcessInfo>& processes,
-                           const std::vector<PortInfo>& ports,
-                           const std::vector<SuspiciousActivity>& activities) {
+               const std::vector<PortInfo>& ports,
+               const std::vector<SuspiciousActivity>& activities) {
     try {
-        // Create JSON payload
-        std::string payload = createJsonPayload(processes, ports, activities);
-        std::cout << "Sending data to server..." << std::endl;
-
-        return sendHttpRequest(L"/api/upload/", payload);
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error sending data: " << e.what() << std::endl;
+        std::string jsonPayload = createJsonPayload(processes, ports, activities);
+        return sendHttpRequest(UPLOAD_PATH, jsonPayload);
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating or sending data payload: " << e.what() << std::endl;
         return false;
+    }
+}
+
+bool NetworkClient::sendLog(const std::string& level, const std::string& message, const std::string& source) {
+    try {
+        std::lock_guard<std::mutex> lock(logMutex);
+        
+        LogEntry entry{
+            level,
+            message,
+            source,
+            std::chrono::system_clock::now()
+        };
+        
+        logQueue.push(entry);
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error queueing log: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool NetworkClient::checkAndSendLogs() {
+    try {
+        auto now = std::chrono::system_clock::now();
+        if (std::chrono::duration_cast<std::chrono::minutes>(now - lastLogSent).count() >= 1) {
+            return sendQueuedLogs();
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error checking/sending logs: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool NetworkClient::sendQueuedLogs() {
+    std::lock_guard<std::mutex> lock(logMutex);
+    if (logQueue.empty()) {
+        return true;
+    }
+
+    try {
+        std::vector<LogEntry> logs;
+        while (!logQueue.empty()) {
+            logs.push_back(logQueue.front());
+            logQueue.pop();
+        }
+
+        std::string jsonPayload = createLogsPayload(logs);
+        bool success = sendHttpRequest(LOGS_PATH, jsonPayload);
+        if (success) {
+            lastLogSent = std::chrono::system_clock::now();
+            std::cout << "Successfully sent " << logs.size() << " logs to server" << std::endl;
+        } else {
+            std::cerr << "Failed to send logs to server" << std::endl;
+            // Put logs back in queue if send failed
+            for (const auto& log : logs) {
+                logQueue.push(log);
+            }
+        }
+        return success;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending queued logs: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+std::string NetworkClient::createLogsPayload(const std::vector<LogEntry>& logs) {
+    try {
+        json j;
+        j["logs"] = json::array();
+
+        for (const auto& log : logs) {
+            json log_entry;
+            log_entry["level"] = log.level;
+            log_entry["message"] = log.message;
+            log_entry["source"] = log.source;
+            log_entry["hostname"] = hostname;
+            
+            // Convert timestamp to Unix timestamp
+            auto timestamp = std::chrono::system_clock::to_time_t(log.timestamp);
+            log_entry["timestamp"] = timestamp;
+
+            j["logs"].push_back(log_entry);
+        }
+
+        return j.dump();
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating logs payload: " << e.what() << std::endl;
+        throw;
     }
 }
 
@@ -80,21 +188,18 @@ bool NetworkClient::sendHttpRequest(const std::wstring& path, const std::string&
         return false;
     }
 
-    // Create request without WINHTTP_FLAG_SECURE flag for HTTP
-    // Removed WINHTTP_FLAG_SECURE flag to allow HTTP connections
     HINTERNET hRequest = WinHttpOpenRequest(hConnect,
                                           L"POST",
                                           path.c_str(),
                                           NULL,
                                           WINHTTP_NO_REFERER,
                                           WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                          0); 
+                                          0);
     if (!hRequest) {
         std::cerr << "Failed to create request. Error: " << GetLastError() << std::endl;
         return false;
     }
 
-    // Add headers
     LPCWSTR headers = L"Content-Type: application/json\r\n";
     if (!WinHttpAddRequestHeaders(hRequest, headers, -1L, WINHTTP_ADDREQ_FLAG_ADD)) {
         std::cerr << "Failed to add headers. Error: " << GetLastError() << std::endl;
@@ -102,142 +207,152 @@ bool NetworkClient::sendHttpRequest(const std::wstring& path, const std::string&
         return false;
     }
 
-    // Send request
     if (!WinHttpSendRequest(hRequest,
-                           WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                           (LPVOID)data.c_str(), data.length(),
-                           data.length(), 0)) {
+                           WINHTTP_NO_ADDITIONAL_HEADERS,
+                           0,
+                           (LPVOID)data.c_str(),
+                           data.length(),
+                           data.length(),
+                           0)) {
         std::cerr << "Failed to send request. Error: " << GetLastError() << std::endl;
         WinHttpCloseHandle(hRequest);
         return false;
     }
 
-    // Receive response
     if (!WinHttpReceiveResponse(hRequest, NULL)) {
         std::cerr << "Failed to receive response. Error: " << GetLastError() << std::endl;
         WinHttpCloseHandle(hRequest);
         return false;
     }
 
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(DWORD);
+    WinHttpQueryHeaders(hRequest,
+                       WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                       WINHTTP_HEADER_NAME_BY_INDEX,
+                       &statusCode,
+                       &statusCodeSize,
+                       WINHTTP_NO_HEADER_INDEX);
+
     WinHttpCloseHandle(hRequest);
-    return true;
+
+    return (statusCode >= 200 && statusCode < 300);
 }
 
 std::string NetworkClient::createJsonPayload(const std::vector<ProcessInfo>& processes,
-                                           const std::vector<PortInfo>& ports,
-                                           const std::vector<SuspiciousActivity>& activities) {
-    json payload;
-    
-    // Add hostname
-    char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
-        payload["hostname"] = hostname;
-    } else {
-        payload["hostname"] = "unknown";
-    }
-    
-    // Add processes
-    json processArray = json::array();
-    for (const auto& proc : processes) {
-        json procObj;
-        procObj["pid"] = proc.pid;
-        procObj["name"] = proc.name;
-        procObj["path"] = proc.path;
-        procObj["commandLine"] = proc.commandLine;
-        processArray.push_back(procObj);
-    }
-    payload["processes"] = processArray;
+                               const std::vector<PortInfo>& ports,
+                               const std::vector<SuspiciousActivity>& activities) {
+    try {
+        json payload;
+        
+        char hostname[256];
+        if (gethostname(hostname, sizeof(hostname)) == 0) {
+            payload["hostname"] = hostname;
+        } else {
+            payload["hostname"] = "unknown";
+        }
 
-    // Add ports
-    json portArray = json::array();
-    for (const auto& port : ports) {
-        json portObj;
-        portObj["port"] = port.port;  // Changed from port_number to port
-        portObj["protocol"] = port.protocol;
-        portObj["state"] = port.state;
-        portObj["processName"] = port.processName;
-        portObj["pid"] = port.pid;
-        portArray.push_back(portObj);
-    }
-    payload["ports"] = portArray;
+        json processArray = json::array();
+        for (const auto& process : processes) {
+            json processObj;
+            processObj["pid"] = process.pid;
+            processObj["name"] = process.name;
+            processObj["path"] = process.path;
+            processObj["command_line"] = process.commandLine;
+            processArray.push_back(processObj);
+        }
+        payload["processes"] = processArray;
 
-    // Add alerts (renamed from activities)
-    json alertArray = json::array();
-    for (const auto& activity : activities) {
-        json alertObj;
-        alertObj["type"] = activity.type;
-        alertObj["description"] = activity.description;
-        alertObj["processName"] = activity.processName;
-        alertObj["pid"] = activity.pid;
-        alertArray.push_back(alertObj);
-    }
-    payload["alerts"] = alertArray;  // Changed from activities to alerts
+        json portArray = json::array();
+        for (const auto& port : ports) {
+            json portObj;
+            portObj["port"] = port.port;
+            portObj["protocol"] = port.protocol;
+            portObj["state"] = port.state;
+            portObj["process_id"] = port.pid;
+            portObj["process_name"] = port.processName;
+            portArray.push_back(portObj);
+        }
+        payload["ports"] = portArray;
 
-    return payload.dump();
+        json activityArray = json::array();
+        for (const auto& activity : activities) {
+            json activityObj;
+            activityObj["type"] = activity.type;
+            activityObj["description"] = activity.description;
+            activityObj["process_name"] = activity.processName;
+            activityObj["process_id"] = activity.pid;
+            activityArray.push_back(activityObj);
+        }
+        payload["suspicious_activities"] = activityArray;
+
+        return payload.dump();
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating JSON payload: " << e.what() << std::endl;
+        throw;
+    }
 }
 
 bool NetworkClient::executeCommand(const std::string& command, std::string& output) {
-    output.clear();
-    
-    SECURITY_ATTRIBUTES saAttr;
-    saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-    saAttr.bInheritHandle = TRUE;
-    saAttr.lpSecurityDescriptor = NULL;
+    try {
+        output.clear();
+        
+        SECURITY_ATTRIBUTES saAttr;
+        saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+        saAttr.bInheritHandle = TRUE;
+        saAttr.lpSecurityDescriptor = NULL;
 
-    HANDLE hReadPipe, hWritePipe;
-    if (!CreatePipe(&hReadPipe, &hWritePipe, &saAttr, 0)) {
-        return false;
-    }
+        HANDLE hReadPipe, hWritePipe;
+        if (!CreatePipe(&hReadPipe, &hWritePipe, &saAttr, 0)) {
+            return false;
+        }
 
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-    si.hStdError = hWritePipe;
-    si.hStdOutput = hWritePipe;
-    si.dwFlags |= STARTF_USESTDHANDLES;
-    ZeroMemory(&pi, sizeof(pi));
+        STARTUPINFOA si;
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        si.hStdError = hWritePipe;
+        si.hStdOutput = hWritePipe;
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        ZeroMemory(&pi, sizeof(pi));
 
-    std::string cmdLine = "cmd.exe /c " + command;
-    char* cmdLineStr = _strdup(cmdLine.c_str());
+        std::string cmdLine = "cmd.exe /c " + command;
+        if (!CreateProcessA(NULL,
+                           const_cast<LPSTR>(cmdLine.c_str()),
+                           NULL,
+                           NULL,
+                           TRUE,
+                           CREATE_NO_WINDOW,
+                           NULL,
+                           NULL,
+                           &si,
+                           &pi)) {
+            CloseHandle(hReadPipe);
+            CloseHandle(hWritePipe);
+            return false;
+        }
 
-    BOOL success = CreateProcessA(NULL,
-        cmdLineStr,
-        NULL,
-        NULL,
-        TRUE,
-        0,
-        NULL,
-        NULL,
-        &si,
-        &pi);
-
-    free(cmdLineStr);
-
-    if (!success) {
-        CloseHandle(hReadPipe);
         CloseHandle(hWritePipe);
+
+        char buffer[4096];
+        DWORD bytesRead;
+        while (ReadFile(hReadPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
+            buffer[bytesRead] = '\0';
+            output += buffer;
+        }
+
+        WaitForSingleObject(pi.hProcess, INFINITE);
+
+        DWORD exitCode;
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        CloseHandle(hReadPipe);
+
+        return exitCode == 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error executing command: " << e.what() << std::endl;
         return false;
     }
-
-    CloseHandle(hWritePipe);
-
-    char buffer[4096];
-    DWORD bytesRead;
-    while (ReadFile(hReadPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
-        if (bytesRead == 0) break;
-        buffer[bytesRead] = '\0';
-        output += buffer;
-    }
-
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    CloseHandle(hReadPipe);
-
-    return exitCode == 0;
 }

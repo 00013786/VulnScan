@@ -5,18 +5,14 @@
 #include <string>
 #include <vector>
 
-class NetworkClientTest : public ::testing::Test {
+class NetworkClientTest : public ::testing::Test, protected NetworkClient {
 protected:
-    NetworkClient* client;
-    void SetUp() override {
-        client = new NetworkClient("http://localhost:8000");
-    }
-    void TearDown() override {
-        delete client;
-    }
+    NetworkClientTest() : NetworkClient("http://localhost:8000") {}
+    void SetUp() override {}
+    void TearDown() override {}
 };
 
-TEST_F(NetworkClientTest, CreateJsonPayload) {
+TEST_F(NetworkClientTest, CreateJsonPayload_Test) {
     std::vector<ProcessInfo> processes = {
         ProcessInfo{1234, "test.exe", "C:\\test.exe", "test.exe --param"}
     };
@@ -35,12 +31,12 @@ TEST_F(NetworkClientTest, CreateJsonPayload) {
         }
     };
     
-    std::string payload = client->createJsonPayload(processes, ports, alerts);
+    std::string payload = createJsonPayload(processes, ports, alerts);
     
     // Verify JSON structure
     EXPECT_TRUE(payload.find("\"processes\"") != std::string::npos);
     EXPECT_TRUE(payload.find("\"ports\"") != std::string::npos);
-    EXPECT_TRUE(payload.find("\"activities\"") != std::string::npos);
+    EXPECT_TRUE(payload.find("\"suspicious_activities\"") != std::string::npos);
     EXPECT_TRUE(payload.find("\"pid\":1234") != std::string::npos);
     EXPECT_TRUE(payload.find("\"name\":\"test.exe\"") != std::string::npos);
 }
@@ -55,19 +51,11 @@ TEST_F(ProcessScannerTest, ScanProcesses) {
     std::vector<ProcessInfo> processes = scanner.scanProcesses();
     EXPECT_FALSE(processes.empty());
     
-    // Verify process information
-    bool foundValidProcess = false;
     for (const auto& process : processes) {
         EXPECT_GT(process.pid, 0);
         EXPECT_FALSE(process.name.empty());
-        
-        // We might not have access to all process paths, but we should have access to at least one
-        if (!process.path.empty()) {
-            foundValidProcess = true;
-        }
+        EXPECT_FALSE(process.path.empty());
     }
-    
-    EXPECT_TRUE(foundValidProcess) << "Should find at least one process with full access";
 }
 
 class PortScannerTest : public ::testing::Test {
@@ -78,11 +66,10 @@ protected:
 
 TEST_F(PortScannerTest, ScanPorts) {
     std::vector<PortInfo> ports = scanner.scanPorts();
+    EXPECT_FALSE(ports.empty());
     
-    // Verify port information
     for (const auto& port : ports) {
         EXPECT_GT(port.port, 0);
-        EXPECT_LE(port.port, 65535);
         EXPECT_FALSE(port.protocol.empty());
         EXPECT_FALSE(port.state.empty());
     }

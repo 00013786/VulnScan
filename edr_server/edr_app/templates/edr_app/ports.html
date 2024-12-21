@@ -1,0 +1,72 @@
+{% extends 'edr_app/base.html' %}
+
+{% block title %}Network Ports{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">Network Ports</h1>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-hdd-network"></i> Open Ports
+                </h5>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-primary" onclick="refreshData()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="portTable">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Port</th>
+                            <th>Protocol</th>
+                            <th>State</th>
+                            <th>Process</th>
+                            <th>Service</th>
+                            <th>Version</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for port in ports %}
+                            <tr>
+                                <td>{{ port.client.hostname }}</td>
+                                <td>{{ port.port_number }}</td>
+                                <td>{{ port.protocol }}</td>
+                                <td>
+                                    <span class="badge {% if port.state == 'OPEN' %}bg-success{% else %}bg-warning{% endif %}">
+                                        {{ port.state }}
+                                    </span>
+                                </td>
+                                <td>{{ port.process_name }} ({{ port.process_id }})</td>
+                                <td>{{ port.service_name|default:"-" }}</td>
+                                <td>{{ port.service_version|default:"-" }}</td>
+                                <td>{{ port.timestamp }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center">No open ports found</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshData() {
+    location.reload();
+}
+</script>
+{% endblock %}

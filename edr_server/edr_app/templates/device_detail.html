@@ -3,235 +3,40 @@
 {% block title %}{{ client.hostname }} Details{% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-    <h2>Device Details: {{ client.hostname }}</h2>
-    <p>IP Address: {{ client.ip_address }}</p>
-    <p>Last Seen: {{ client.last_seen }}</p>
-
-    <!-- Vulnerability Summary -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0">Potential Vulnerabilities</h4>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <h5>Process Vulnerabilities</h5>
-                            {% for match in process_vulnerabilities %}
-                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
-                                <strong>{{ match.vulnerability.cve_id }}</strong>
-                                <p class="mb-1">Process: {{ match.process.name }}</p>
-                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
-                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
-                            </div>
-                            {% empty %}
-                            <p>No process vulnerabilities detected</p>
-                            {% endfor %}
-                        </div>
-                        <div class="col-md-4">
-                            <h5>Service Vulnerabilities</h5>
-                            {% for match in service_vulnerabilities %}
-                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
-                                <strong>{{ match.vulnerability.cve_id }}</strong>
-                                <p class="mb-1">Service: {{ match.port.service_name }}</p>
-                                <p class="mb-1">Port: {{ match.port.port_number }}</p>
-                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
-                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
-                            </div>
-                            {% empty %}
-                            <p>No service vulnerabilities detected</p>
-                            {% endfor %}
-                        </div>
-                        <div class="col-md-4">
-                            <h5>Port Vulnerabilities</h5>
-                            {% for match in port_vulnerabilities %}
-                            <div class="alert alert-{{ match.vulnerability.severity|lower }} mb-2">
-                                <strong>{{ match.vulnerability.cve_id }}</strong>
-                                <p class="mb-1">Port: {{ match.port.port_number }}</p>
-                                <p class="mb-1">Protocol: {{ match.port.protocol }}</p>
-                                <p class="mb-1">Confidence: {{ match.confidence_score|floatformat:2 }}</p>
-                                <small>{{ match.vulnerability.description|truncatewords:30 }}</small>
-                            </div>
-                            {% empty %}
-                            <p>No port vulnerabilities detected</p>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Processes -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h4 class="mb-0">Running Processes</h4>
-                    <div class="d-flex align-items-center">
-                        <label class="me-2">Show</label>
-                        <select class="form-select form-select-sm entries-select" style="width: auto;" data-table="processes-table">
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                        <label class="ms-2">entries</label>
-                        <div class="me-3">
-                            <label for="processClientFilter" class="me-2">Client:</label>
-                            <select id="processClientFilter" class="form-select form-select-sm d-inline-block w-auto">
-                                <option value="">All Clients</option>
-                                {% for client in clients %}
-                                <option value="{{ client.name }}">{{ client.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table id="processesTable" class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>PID</th>
-                                    <th>Name</th>
-                                    <th>Path</th>
-                                    <th>Command Line</th>
-                                    <th>Version</th>
-                                    <th>Timestamp</th>
-                                    <th>Client</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for process in processes %}
-                                <tr>
-                                    <td>{{ process.pid }}</td>
-                                    <td>{{ process.name }}</td>
-                                    <td>{{ process.path }}</td>
-                                    <td>{{ process.command_line|truncatechars:50 }}</td>
-                                    <td>{{ process.version|default:"Unknown" }}</td>
-                                    <td>{{ process.timestamp }}</td>
-                                    <td>{{ process.client.name }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="7">No processes found</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Ports -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h4 class="mb-0">Open Ports</h4>
-                    <div class="d-flex align-items-center">
-                        <label class="me-2">Show</label>
-                        <select class="form-select form-select-sm entries-select" style="width: auto;" data-table="ports-table">
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                        <label class="ms-2">entries</label>
-                        <div class="me-3">
-                            <label for="portClientFilter" class="me-2">Client:</label>
-                            <select id="portClientFilter" class="form-select form-select-sm d-inline-block w-auto">
-                                <option value="">All Clients</option>
-                                {% for client in clients %}
-                                <option value="{{ client.name }}">{{ client.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table id="portsTable" class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Port</th>
-                                    <th>Protocol</th>
-                                    <th>State</th>
-                                    <th>Service</th>
-                                    <th>Version</th>
-                                    <th>Process</th>
-                                    <th>Timestamp</th>
-                                    <th>Client</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for port in ports %}
-                                <tr>
-                                    <td>{{ port.port_number }}</td>
-                                    <td>{{ port.protocol }}</td>
-                                    <td>{{ port.state }}</td>
-                                    <td>{{ port.service_name|default:"Unknown" }}</td>
-                                    <td>{{ port.service_version|default:"Unknown" }}</td>
-                                    <td>{{ port.process_name }} ({{ port.process_id }})</td>
-                                    <td>{{ port.timestamp }}</td>
-                                    <td>{{ port.client.name }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="8">No open ports found</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Alerts -->
+<div class="container-fluid py-4">
     <div class="row mb-4">
         <div class="col-md-12">
             <div class="card">
                 <div class="card-header">
-                    <h4 class="mb-0">Recent Alerts</h4>
+                    <h4 class="mb-0">Device Details</h4>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Description</th>
-                                    <th>Process</th>
-                                    <th>Timestamp</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for alert in alerts %}
-                                <tr>
-                                    <td>{{ alert.type }}</td>
-                                    <td>{{ alert.description }}</td>
-                                    <td>{{ alert.process_name }} {% if alert.process_id %}({{ alert.process_id }}){% endif %}</td>
-                                    <td>{{ alert.timestamp }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="4">No alerts found</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Hostname:</strong> {{ client.hostname }}</p>
+                            <p><strong>IP Address:</strong> {{ client.ip_address }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Last Seen:</strong> {{ client.last_seen|date:"Y-m-d H:i:s" }}</p>
+                            <p><strong>Status:</strong> 
+                                {% if client.last_seen|timesince < "5 minutes" %}
+                                <span class="badge bg-success">Active</span>
+                                {% else %}
+                                <span class="badge bg-danger">Inactive</span>
+                                {% endif %}
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    {% include 'process_table.html' %}
+    {% include 'port_table.html' %}
+    {% include 'alert_table.html' %}
+    {% include 'log_table.html' %}
+    {% include 'vulnerability_table.html' %}
 </div>
 {% endblock %}
 

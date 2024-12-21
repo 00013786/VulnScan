@@ -17,9 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
-from rest_framework.authtoken import views as token_views
-from django.shortcuts import redirect
 from rest_framework import routers
+from rest_framework.authtoken import views as token_views
+from edr_app import views
 from edr_app.views import (
     ClientViewSet, dashboard, processes,
     ports, alerts, vulnerabilities, upload_data,
@@ -34,20 +34,20 @@ def redirect_to_login(request):
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', redirect_to_login, name='home'),  # Redirect root to login
-    path('dashboard/', dashboard, name='dashboard'),  # Move dashboard to its own URL
-    path('login/', auth_views.LoginView.as_view(
-        template_name='registration/login.html',
-        redirect_authenticated_user=True
-    ), name='login'),
+    path('', views.home, name='home'),
+    path('dashboard/', views.dashboard, name='dashboard'),
+    path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
-    path('device/<int:device_id>/', device_detail, name='device_detail'),
-    path('processes/', processes, name='processes'),
-    path('ports/', ports, name='ports'),
-    path('alerts/', alerts, name='alerts'),
-    path('vulnerabilities/', vulnerabilities, name='vulnerabilities'),
+    path('device/<int:device_id>/', views.device_detail, name='device_detail'),
+    path('processes/', views.processes, name='processes'),
+    path('ports/', views.ports, name='ports'),
+    path('alerts/', views.alerts, name='alerts'),
+    path('vulnerabilities/', views.vulnerabilities, name='vulnerabilities'),
     path('api/', include(router.urls)),
-    path('api/upload/', upload_data, name='upload_data'),
+    path('api/upload/', views.upload_data, name='upload_data'),
     path('api-token-auth/', token_views.obtain_auth_token),
     path('api-auth/', include('rest_framework.urls')),
+    
+    # Include all edr_app URLs
+    path('', include('edr_app.urls')),
 ]
