@@ -1,125 +1,131 @@
-{% extends "admin/base_site.html" %}
-{% load static %}
+{% extends 'edr_app/base.html' %}
 
-{% block extrastyle %}
-<style>
-    .log-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 20px;
-    }
-    .log-table th, .log-table td {
-        padding: 8px;
-        border: 1px solid #ddd;
-        text-align: left;
-    }
-    .log-table th {
-        background-color: #f5f5f5;
-    }
-    .log-table tr:nth-child(even) {
-        background-color: #f9f9f9;
-    }
-    .log-level {
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-    }
-    .log-level-INFO { background-color: #d1ecf1; color: #0c5460; }
-    .log-level-WARNING { background-color: #fff3cd; color: #856404; }
-    .log-level-ERROR { background-color: #f8d7da; color: #721c24; }
-    .log-level-DEBUG { background-color: #e2e3e5; color: #383d41; }
-    .download-btn {
-        display: inline-block;
-        padding: 10px 20px;
-        background-color: #417690;
-        color: white;
-        text-decoration: none;
-        border-radius: 4px;
-        margin: 10px 0;
-    }
-    .download-btn:hover {
-        background-color: #2c5170;
-        color: white;
-    }
-    .filters {
-        margin: 20px 0;
-        padding: 15px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-    }
-    .filters select, .filters input {
-        margin-right: 10px;
-        padding: 5px;
-    }
-</style>
-{% endblock %}
+{% block title %}Windows Event Logs{% endblock %}
 
 {% block content %}
-<div id="content-main">
-    <h1>System Logs</h1>
-    
-    <div class="filters">
-        <form method="get">
-            <select name="level">
-                <option value="">All Levels</option>
-                {% for level in log_levels %}
-                <option value="{{ level.0 }}" {% if selected_level == level.0 %}selected{% endif %}>{{ level.1 }}</option>
-                {% endfor %}
-            </select>
-            <select name="client">
-                <option value="">All Clients</option>
-                {% for client in clients %}
-                <option value="{{ client.id }}" {% if selected_client == client.id %}selected{% endif %}>{{ client.hostname }}</option>
-                {% endfor %}
-            </select>
-            <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}" />
-            <button type="submit">Filter</button>
-        </form>
+<div class="container-fluid">
+    <h1 class="mb-4">Windows Event Logs</h1>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label for="source" class="form-label">Source</label>
+                    <select name="source" id="source" class="form-select">
+                        <option value="">All Sources</option>
+                        {% for src in sources %}
+                            <option value="{{ src }}" {% if src == current_source %}selected{% endif %}>
+                                {{ src }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="level" class="form-label">Level</label>
+                    <select name="level" id="level" class="form-select">
+                        <option value="">All Levels</option>
+                        {% for lvl in levels %}
+                            <option value="{{ lvl }}" {% if lvl == current_level %}selected{% endif %}>
+                                {{ lvl }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="start_date" class="form-label">Start Date</label>
+                    <input type="datetime-local" class="form-control" id="start_date" name="start_date" 
+                           value="{{ start_date|default:'' }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="end_date" class="form-label">End Date</label>
+                    <input type="datetime-local" class="form-control" id="end_date" name="end_date" 
+                           value="{{ end_date|default:'' }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Apply Filters</button>
+                    <a href="{% url 'logs' %}" class="btn btn-secondary">Clear Filters</a>
+                </div>
+            </form>
+        </div>
     </div>
 
-    <a href="{% url 'download_logs' %}?level={{ selected_level }}&client={{ selected_client }}&date={{ selected_date|date:'Y-m-d' }}" class="download-btn">
-        Download Logs (CSV)
-    </a>
-
-    <table class="log-table">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Client</th>
-                <th>Level</th>
-                <th>Source</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for log in logs %}
-            <tr>
-                <td>{{ log.timestamp }}</td>
-                <td>{{ log.client.hostname }}</td>
-                <td><span class="log-level log-level-{{ log.level }}">{{ log.level }}</span></td>
-                <td>{{ log.source }}</td>
-                <td>{{ log.message }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <div class="pagination">
-        <span class="step-links">
-            {% if logs.has_previous %}
-                <a href="?page=1{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">&laquo; first</a>
-                <a href="?page={{ logs.previous_page_number }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">previous</a>
-            {% endif %}
-
-            <span class="current">
-                Page {{ logs.number }} of {{ logs.paginator.num_pages }}
-            </span>
-
-            {% if logs.has_next %}
-                <a href="?page={{ logs.next_page_number }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">next</a>
-                <a href="?page={{ logs.paginator.num_pages }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if selected_client %}&client={{ selected_client }}{% endif %}{% if selected_date %}&date={{ selected_date|date:'Y-m-d' }}{% endif %}">last &raquo;</a>
-            {% endif %}
-        </span>
+    <!-- Logs Table -->
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Event Logs</h5>
+                <button type="button" class="btn btn-primary" onclick="refreshData()">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table id="logsTable" class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Source</th>
+                            <th>Level</th>
+                            <th>Event ID</th>
+                            <th>Provider</th>
+                            <th>Message</th>
+                            <th>Device</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr class="{% if log.level == 'Error' %}table-danger{% elif log.level == 'Warning' %}table-warning{% endif %}">
+                                <td>{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+                                <td>{{ log.source }}</td>
+                                <td>
+                                    <span class="badge {% if log.level == 'Error' %}bg-danger{% elif log.level == 'Warning' %}bg-warning{% elif log.level == 'Information' %}bg-info{% else %}bg-secondary{% endif %}">
+                                        {{ log.level }}
+                                    </span>
+                                </td>
+                                <td>{{ log.event_id }}</td>
+                                <td>{{ log.provider }}</td>
+                                <td>{{ log.message|truncatechars:100 }}</td>
+                                <td>{{ log.client.hostname }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center">No logs found</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('#logsTable').DataTable({
+        order: [[0, 'desc']],  // Sort by timestamp descending
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        columns: [
+            { data: 'timestamp' },
+            { data: 'source' },
+            { data: 'level' },
+            { data: 'event_id' },
+            { data: 'provider' },
+            { data: 'message' },
+            { data: 'device' }
+        ]
+    });
+});
+
+function refreshData() {
+    location.reload();
+}
+</script>
 {% endblock %}

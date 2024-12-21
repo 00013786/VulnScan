@@ -16,16 +16,34 @@ if(WIN32)
     link_libraries(ws2_32 psapi iphlpapi winhttp)
 endif()
 
-add_executable(edr_client 
+set(SOURCES
     src/main.cpp
     src/process_scanner.cpp
     src/port_scanner.cpp
     src/behavior_monitor.cpp
     src/network_client.cpp
+    src/log_collector.cpp
+)
+
+set(HEADERS
+    include/process_scanner.h
+    include/port_scanner.h
+    include/behavior_monitor.h
+    include/network_client.h
+    include/log_collector.h
+)
+
+add_executable(edr_client 
+    ${SOURCES}
+    ${HEADERS}
 )
 
 target_include_directories(edr_client PRIVATE include)
-target_link_libraries(edr_client PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(edr_client PRIVATE
+    nlohmann_json::nlohmann_json
+    winhttp
+    wevtapi
+)
 
 # Add compile definitions for include order
 target_compile_definitions(edr_client PRIVATE WIN32_LEAN_AND_MEAN)

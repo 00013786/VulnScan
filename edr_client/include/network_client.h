@@ -15,9 +15,12 @@
 
 using json = nlohmann::json;
 
-#define SERVER_URL L"http://localhost:8000"
-#define UPLOAD_PATH L"/api/upload/"
-#define LOGS_PATH L"/api/logs/upload/"
+#define SERVER_URL L"http://127.0.0.1:8000"
+
+// Path constants
+const std::string UPLOAD_PATH = "/api/upload/";
+const std::string LOGS_PATH = "/api/logs/upload/";
+const std::string WINDOWS_LOGS_PATH = "/api/logs/windows/";
 
 struct LogEntry {
     std::string level;
@@ -32,32 +35,38 @@ public:
     NetworkClient(const std::string& serverUrl);
     ~NetworkClient();
 
+    bool initialize();
     bool sendData(const std::vector<ProcessInfo>& processes,
                  const std::vector<PortInfo>& ports,
                  const std::vector<SuspiciousActivity>& activities);
     
     bool sendLog(const std::string& level, const std::string& message, const std::string& source);
+    void sendLog(const std::string& jsonData);
+    void checkAndSendLogs();
+    void uploadData(const std::string& data);
     bool executeCommand(const std::string& command, std::string& output);
-    bool checkAndSendLogs();
 
 protected:
     std::string createJsonPayload(const std::vector<ProcessInfo>& processes,
-                               const std::vector<PortInfo>& ports,
-                               const std::vector<SuspiciousActivity>& activities);
+                                const std::vector<PortInfo>& ports,
+                                const std::vector<SuspiciousActivity>& activities);
     std::string createLogsPayload(const std::vector<LogEntry>& logs);
+    bool sendQueuedLogs();
+    std::wstring stringToWideString(const std::string& str);
 
 private:
-    bool initialize();
     bool sendHttpRequest(const std::wstring& path, const std::string& data);
-    bool sendQueuedLogs();
-
-    std::wstring serverUrl;
+    bool isInitialized;
+    std::string serverUrl;
+    std::string authToken;
+    std::vector<std::string> queuedLogs;
     HINTERNET hSession;
     HINTERNET hConnect;
     std::queue<LogEntry> logQueue;
     std::mutex logMutex;
     std::chrono::system_clock::time_point lastLogSent;
     std::string hostname;
+    std::string getHostname();
 };
 
 #endif // NETWORK_CLIENT_H

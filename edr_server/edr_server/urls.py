@@ -23,7 +23,7 @@ from edr_app import views
 from edr_app.views import (
     ClientViewSet, dashboard, processes,
     ports, alerts, vulnerabilities, upload_data,
-    device_detail
+    device_detail, upload_windows_logs
 )
 
 router = routers.DefaultRouter()
@@ -36,7 +36,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
     path('dashboard/', views.dashboard, name='dashboard'),
-    path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
+    path('login/', auth_views.LoginView.as_view(template_name='edr_app/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('device/<int:device_id>/', views.device_detail, name='device_detail'),
     path('processes/', views.processes, name='processes'),
@@ -45,6 +45,7 @@ urlpatterns = [
     path('vulnerabilities/', views.vulnerabilities, name='vulnerabilities'),
     path('api/', include(router.urls)),
     path('api/upload/', views.upload_data, name='upload_data'),
+    path('api/logs/windows/', views.upload_windows_logs, name='upload_windows_logs'),
     path('api-token-auth/', token_views.obtain_auth_token),
     path('api-auth/', include('rest_framework.urls')),
     

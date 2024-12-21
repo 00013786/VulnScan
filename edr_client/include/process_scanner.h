@@ -13,8 +13,9 @@ struct ProcessInfo {
 class ProcessScanner {
 public:
     std::vector<ProcessInfo> scanProcesses();
+    bool killProcess(DWORD processId);
 
 private:
-    std::string getProcessPath(HANDLE process);
+    std::string getProcessPath(HANDLE processHandle);
     std::string getProcessCommandLine(DWORD pid);
 };

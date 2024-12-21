@@ -81,3 +81,23 @@ std::string ProcessScanner::getProcessCommandLine(DWORD pid) {
     // Getting command line requires higher privileges, so we'll skip it for now
     return "";
 }
+
+bool ProcessScanner::killProcess(DWORD processId) {
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
+    if (hProcess == NULL) {
+        std::cerr << "Failed to open process " << processId << " for termination. Error: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    bool success = TerminateProcess(hProcess, 1);
+    DWORD error = GetLastError();
+    CloseHandle(hProcess);
+
+    if (!success) {
+        std::cerr << "Failed to terminate process " << processId << ". Error: " << error << std::endl;
+        return false;
+    }
+
+    std::cout << "Successfully terminated process " << processId << std::endl;
+    return true;
+}

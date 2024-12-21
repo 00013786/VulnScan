@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, Log
+from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, Log, WindowsEventLog
 
 class ProcessSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,3 +37,8 @@ class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
         fields = ['id', 'hostname', 'ip_address', 'last_seen', 'processes', 'ports', 'activities']
+
+class WindowsEventLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WindowsEventLog
+        fields = ['source', 'provider', 'level', 'event_id', 'message', 'timestamp']

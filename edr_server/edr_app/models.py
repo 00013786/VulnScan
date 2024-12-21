@@ -111,3 +111,32 @@ class Log(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+
+class WindowsEventLog(models.Model):
+    LOG_LEVELS = [
+        ('Information', 'Information'),
+        ('Warning', 'Warning'),
+        ('Error', 'Error'),
+        ('Critical', 'Critical'),
+        ('Verbose', 'Verbose'),
+    ]
+
+    client = models.ForeignKey(Client, on_delete=models.CASCADE)
+    source = models.CharField(max_length=255)  # Application, System, Security
+    provider = models.CharField(max_length=255)
+    level = models.CharField(max_length=20, choices=LOG_LEVELS)
+    event_id = models.CharField(max_length=50)
+    message = models.TextField()
+    timestamp = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['-timestamp']),
+            models.Index(fields=['source']),
+            models.Index(fields=['level']),
+        ]
+
+    def __str__(self):
+        return f"{self.source} - {self.event_id} - {self.timestamp}"

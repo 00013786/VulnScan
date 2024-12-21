@@ -16,42 +16,228 @@ using json = nlohmann::json;
 std::mutex logMutex;
 std::chrono::system_clock::time_point lastLogSent;
 
-NetworkClient::NetworkClient(const std::string& serverUrl) {
-    // Convert server URL to wide string
-    std::wstring wServerUrl(serverUrl.begin(), serverUrl.end());
-    this->serverUrl = wServerUrl;
-    
-    // Get hostname
-    char hostnameBuffer[256];
-    if (gethostname(hostnameBuffer, sizeof(hostnameBuffer)) == 0) {
-        hostname = hostnameBuffer;
-    } else {
-        hostname = "unknown";
-    }
-    
-    lastLogSent = std::chrono::system_clock::now();
-    if (!initialize()) {
-        std::cerr << "Failed to initialize network client" << std::endl;
-        throw std::runtime_error("Failed to initialize network client");
+NetworkClient::NetworkClient(const std::string& url) : serverUrl(url), isInitialized(false), hSession(NULL), hConnect(NULL) {
+    // Initialize WinHTTP
+    hSession = WinHttpOpen(
+        L"EDR Client/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0
+    );
+
+    if (!hSession) {
+        throw std::runtime_error("Failed to initialize WinHTTP session");
     }
 }
 
 NetworkClient::~NetworkClient() {
-    if (hConnect) WinHttpCloseHandle(hConnect);
-    if (hSession) WinHttpCloseHandle(hSession);
+    if (hConnect) {
+        WinHttpCloseHandle(hConnect);
+    }
+    if (hSession) {
+        WinHttpCloseHandle(hSession);
+    }
 }
 
 bool NetworkClient::initialize() {
-    hSession = WinHttpOpen(L"EDR Client/1.0",
-                          WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                          WINHTTP_NO_PROXY_NAME,
-                          WINHTTP_NO_PROXY_BYPASS,
-                          0);
-    if (hSession == NULL) {
-        std::cerr << "Failed to create WinHTTP session" << std::endl;
+    if (isInitialized) {
+        return true;
+    }
+
+    try {
+        // Convert URL to wide string for WinHTTP
+        std::wstring wideUrl = stringToWideString(serverUrl);
+
+        // Parse URL and connect
+        URL_COMPONENTS urlComp = { 0 };
+        urlComp.dwStructSize = sizeof(urlComp);
+        urlComp.dwSchemeLength = -1;
+        urlComp.dwHostNameLength = -1;
+        urlComp.dwUrlPathLength = -1;
+
+        if (!WinHttpCrackUrl(wideUrl.c_str(), 0, 0, &urlComp)) {
+            std::cerr << "Failed to parse URL. Error: " << GetLastError() << std::endl;
+            return false;
+        }
+
+        hConnect = WinHttpConnect(
+            hSession,
+            std::wstring(urlComp.lpszHostName, urlComp.dwHostNameLength).c_str(),
+            urlComp.nPort,
+            0
+        );
+
+        if (!hConnect) {
+            std::cerr << "Failed to connect to server. Error: " << GetLastError() << std::endl;
+            return false;
+        }
+
+        isInitialized = true;
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error initializing network client: " << e.what() << std::endl;
         return false;
     }
+}
+
+void NetworkClient::checkAndSendLogs() {
+    if (!isInitialized) {
+        return;
+    }
+    sendQueuedLogs();
+}
+
+void NetworkClient::sendLog(const std::string& jsonData) {
+    if (!isInitialized) {
+        std::cerr << "Client not initialized" << std::endl;
+        return;
+    }
+
+    try {
+        std::string endpoint = serverUrl + "/api/logs/windows/";
+        std::string headers = "Content-Type: application/json\r\n";
+        headers += "Authorization: Token " + authToken + "\r\n";
+
+        bool success = sendHttpRequest(stringToWideString(endpoint), jsonData);
+        if (!success) {
+            std::cerr << "Failed to send log data" << std::endl;
+            queuedLogs.push_back(jsonData);
+        } else {
+            std::cout << "Successfully sent log data" << std::endl;
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error sending log: " << e.what() << std::endl;
+        queuedLogs.push_back(jsonData);
+    }
+}
+
+bool NetworkClient::sendHttpRequest(const std::wstring& path, const std::string& data) {
+    if (!isInitialized) {
+        std::cerr << "Client not initialized. Call initialize() first." << std::endl;
+        return false;
+    }
+
+    HINTERNET hRequest = WinHttpOpenRequest(
+        hConnect,
+        L"POST",
+        path.c_str(),
+        NULL,
+        WINHTTP_NO_REFERER,
+        WINHTTP_DEFAULT_ACCEPT_TYPES,
+        0
+    );
+
+    if (!hRequest) {
+        std::cerr << "Failed to open request. Error: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    // Add security flags to handle SSL/TLS
+    DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                   SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                   SECURITY_FLAG_IGNORE_CERT_CN_INVALID;
+    
+    if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags))) {
+        std::cerr << "Failed to set security options. Error: " << GetLastError() << std::endl;
+        WinHttpCloseHandle(hRequest);
+        return false;
+    }
+
+    std::wstring headers = L"Content-Type: application/json\r\n";
+    if (!authToken.empty() && authToken != "your_auth_token_here") {
+        headers += L"Authorization: Token " + stringToWideString(authToken) + L"\r\n";
+    }
+
+    bool success = WinHttpSendRequest(
+        hRequest,
+        headers.c_str(),
+        -1L,
+        (LPVOID)data.c_str(),
+        data.length(),
+        data.length(),
+        0
+    );
+
+    if (!success) {
+        std::cerr << "Failed to send request. Error: " << GetLastError() << std::endl;
+        WinHttpCloseHandle(hRequest);
+        return false;
+    }
+
+    success = WinHttpReceiveResponse(hRequest, NULL);
+    if (!success) {
+        std::cerr << "Failed to receive response. Error: " << GetLastError() << std::endl;
+        WinHttpCloseHandle(hRequest);
+        return false;
+    }
+
+    // Get the HTTP status code
+    DWORD statusCode = 0;
+    DWORD size = sizeof(DWORD);
+    WinHttpQueryHeaders(hRequest,
+        WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+        WINHTTP_HEADER_NAME_BY_INDEX,
+        &statusCode,
+        &size,
+        WINHTTP_NO_HEADER_INDEX);
+
+    if (statusCode < 200 || statusCode >= 300) {
+        std::cerr << "Server returned error status code: " << statusCode << std::endl;
+        
+        // Read and log response body for error details
+        DWORD bytesAvailable;
+        while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
+            std::vector<char> buffer(bytesAvailable + 1);
+            DWORD bytesRead;
+            if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead)) {
+                buffer[bytesRead] = '\0';
+                std::cerr << "Error response: " << buffer.data() << std::endl;
+            }
+        }
+        
+        WinHttpCloseHandle(hRequest);
+        return false;
+    }
+
+    WinHttpCloseHandle(hRequest);
     return true;
+}
+
+bool NetworkClient::sendQueuedLogs() {
+    if (queuedLogs.empty()) {
+        return true;
+    }
+
+    std::vector<std::string> failedLogs;
+    for (const auto& log : queuedLogs) {
+        if (!sendHttpRequest(stringToWideString("/api/logs/windows/"), log)) {
+            failedLogs.push_back(log);
+        }
+    }
+
+    queuedLogs = failedLogs;
+    return queuedLogs.empty();
+}
+
+std::wstring NetworkClient::stringToWideString(const std::string& str) {
+    if (str.empty()) {
+        return std::wstring();
+    }
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
+    std::vector<wchar_t> buf(size);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, buf.data(), size);
+    return std::wstring(buf.data());
+}
+
+std::string NetworkClient::getHostname() {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        return std::string(hostname);
+    }
+    return "unknown-host";
 }
 
 bool NetworkClient::sendData(const std::vector<ProcessInfo>& processes,
@@ -59,7 +245,7 @@ bool NetworkClient::sendData(const std::vector<ProcessInfo>& processes,
                const std::vector<SuspiciousActivity>& activities) {
     try {
         std::string jsonPayload = createJsonPayload(processes, ports, activities);
-        return sendHttpRequest(UPLOAD_PATH, jsonPayload);
+        return sendHttpRequest(stringToWideString(UPLOAD_PATH), jsonPayload);
     } catch (const std::exception& e) {
         std::cerr << "Error creating or sending data payload: " << e.what() << std::endl;
         return false;
@@ -83,160 +269,6 @@ bool NetworkClient::sendLog(const std::string& level, const std::string& message
         std::cerr << "Error queueing log: " << e.what() << std::endl;
         return false;
     }
-}
-
-bool NetworkClient::checkAndSendLogs() {
-    try {
-        auto now = std::chrono::system_clock::now();
-        if (std::chrono::duration_cast<std::chrono::minutes>(now - lastLogSent).count() >= 1) {
-            return sendQueuedLogs();
-        }
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error checking/sending logs: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-bool NetworkClient::sendQueuedLogs() {
-    std::lock_guard<std::mutex> lock(logMutex);
-    if (logQueue.empty()) {
-        return true;
-    }
-
-    try {
-        std::vector<LogEntry> logs;
-        while (!logQueue.empty()) {
-            logs.push_back(logQueue.front());
-            logQueue.pop();
-        }
-
-        std::string jsonPayload = createLogsPayload(logs);
-        bool success = sendHttpRequest(LOGS_PATH, jsonPayload);
-        if (success) {
-            lastLogSent = std::chrono::system_clock::now();
-            std::cout << "Successfully sent " << logs.size() << " logs to server" << std::endl;
-        } else {
-            std::cerr << "Failed to send logs to server" << std::endl;
-            // Put logs back in queue if send failed
-            for (const auto& log : logs) {
-                logQueue.push(log);
-            }
-        }
-        return success;
-    } catch (const std::exception& e) {
-        std::cerr << "Error sending queued logs: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-std::string NetworkClient::createLogsPayload(const std::vector<LogEntry>& logs) {
-    try {
-        json j;
-        j["logs"] = json::array();
-
-        for (const auto& log : logs) {
-            json log_entry;
-            log_entry["level"] = log.level;
-            log_entry["message"] = log.message;
-            log_entry["source"] = log.source;
-            log_entry["hostname"] = hostname;
-            
-            // Convert timestamp to Unix timestamp
-            auto timestamp = std::chrono::system_clock::to_time_t(log.timestamp);
-            log_entry["timestamp"] = timestamp;
-
-            j["logs"].push_back(log_entry);
-        }
-
-        return j.dump();
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating logs payload: " << e.what() << std::endl;
-        throw;
-    }
-}
-
-bool NetworkClient::sendHttpRequest(const std::wstring& path, const std::string& data) {
-    URL_COMPONENTS urlComp = { 0 };
-    urlComp.dwStructSize = sizeof(urlComp);
-    
-    wchar_t scheme[256] = L"";
-    wchar_t host[256] = L"";
-    wchar_t urlPath[1024] = L"";
-    
-    urlComp.lpszScheme = scheme;
-    urlComp.dwSchemeLength = sizeof(scheme) / sizeof(scheme[0]);
-    urlComp.lpszHostName = host;
-    urlComp.dwHostNameLength = sizeof(host) / sizeof(host[0]);
-    urlComp.lpszUrlPath = urlPath;
-    urlComp.dwUrlPathLength = sizeof(urlPath) / sizeof(urlPath[0]);
-
-    if (!WinHttpCrackUrl(serverUrl.c_str(), 0, 0, &urlComp)) {
-        std::cerr << "Failed to parse URL. Error: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    if (!hSession) {
-        if (!initialize()) {
-            return false;
-        }
-    }
-
-    hConnect = WinHttpConnect(hSession, host, urlComp.nPort, 0);
-    if (!hConnect) {
-        std::cerr << "Failed to connect. Error: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect,
-                                          L"POST",
-                                          path.c_str(),
-                                          NULL,
-                                          WINHTTP_NO_REFERER,
-                                          WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                          0);
-    if (!hRequest) {
-        std::cerr << "Failed to create request. Error: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    LPCWSTR headers = L"Content-Type: application/json\r\n";
-    if (!WinHttpAddRequestHeaders(hRequest, headers, -1L, WINHTTP_ADDREQ_FLAG_ADD)) {
-        std::cerr << "Failed to add headers. Error: " << GetLastError() << std::endl;
-        WinHttpCloseHandle(hRequest);
-        return false;
-    }
-
-    if (!WinHttpSendRequest(hRequest,
-                           WINHTTP_NO_ADDITIONAL_HEADERS,
-                           0,
-                           (LPVOID)data.c_str(),
-                           data.length(),
-                           data.length(),
-                           0)) {
-        std::cerr << "Failed to send request. Error: " << GetLastError() << std::endl;
-        WinHttpCloseHandle(hRequest);
-        return false;
-    }
-
-    if (!WinHttpReceiveResponse(hRequest, NULL)) {
-        std::cerr << "Failed to receive response. Error: " << GetLastError() << std::endl;
-        WinHttpCloseHandle(hRequest);
-        return false;
-    }
-
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(DWORD);
-    WinHttpQueryHeaders(hRequest,
-                       WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                       WINHTTP_HEADER_NAME_BY_INDEX,
-                       &statusCode,
-                       &statusCodeSize,
-                       WINHTTP_NO_HEADER_INDEX);
-
-    WinHttpCloseHandle(hRequest);
-
-    return (statusCode >= 200 && statusCode < 300);
 }
 
 std::string NetworkClient::createJsonPayload(const std::vector<ProcessInfo>& processes,
@@ -289,6 +321,32 @@ std::string NetworkClient::createJsonPayload(const std::vector<ProcessInfo>& pro
         return payload.dump();
     } catch (const std::exception& e) {
         std::cerr << "Error creating JSON payload: " << e.what() << std::endl;
+        throw;
+    }
+}
+
+std::string NetworkClient::createLogsPayload(const std::vector<LogEntry>& logs) {
+    try {
+        json j;
+        j["logs"] = json::array();
+
+        for (const auto& log : logs) {
+            json log_entry;
+            log_entry["level"] = log.level;
+            log_entry["message"] = log.message;
+            log_entry["source"] = log.source;
+            log_entry["hostname"] = hostname;
+            
+            // Convert timestamp to Unix timestamp
+            auto timestamp = std::chrono::system_clock::to_time_t(log.timestamp);
+            log_entry["timestamp"] = timestamp;
+
+            j["logs"].push_back(log_entry);
+        }
+
+        return j.dump();
+    } catch (const std::exception& e) {
+        std::cerr << "Error creating logs payload: " << e.what() << std::endl;
         throw;
     }
 }

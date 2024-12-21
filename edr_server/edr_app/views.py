@@ -6,19 +6,24 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.authentication import SessionAuthentication, BasicAuthentication, TokenAuthentication
 from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 import requests
 import json
-from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, VulnerabilityMatch, Log
+from .models import Client, Process, Port, SuspiciousActivity, Vulnerability, VulnerabilityMatch, Log, WindowsEventLog
 from .serializers import (
     ClientSerializer, ProcessSerializer, PortSerializer,
-    SuspiciousActivitySerializer, VulnerabilitySerializer, LogSerializer
+    SuspiciousActivitySerializer, VulnerabilitySerializer, LogSerializer, WindowsEventLogSerializer
 )
 from .utils import analyze_vulnerabilities
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.http import HttpResponse, JsonResponse
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.contrib import messages
 
 def home(request):
     if request.user.is_authenticated:
@@ -119,15 +124,51 @@ def vulnerabilities(request):
     }
     return render(request, 'edr_app/vulnerabilities.html', context)
 
-from django.shortcuts import render
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.core.paginator import Paginator
-from django.contrib.admin.views.decorators import staff_member_required
-from .models import Client, Process, Port, SuspiciousActivity, Log
-import json
-import csv
-from datetime import datetime
+@login_required
+def logs(request):
+    try:
+        with transaction.atomic():
+            # Get filter parameters
+            source = request.GET.get('source')
+            level = request.GET.get('level')
+            start_date = request.GET.get('start_date')
+            end_date = request.GET.get('end_date')
+
+            # Base queryset with select_related to optimize queries
+            logs = WindowsEventLog.objects.select_related('client').all().order_by('-timestamp')
+
+            # Apply filters
+            if source:
+                logs = logs.filter(source=source)
+            if level:
+                logs = logs.filter(level=level)
+            if start_date:
+                logs = logs.filter(timestamp__gte=start_date)
+            if end_date:
+                logs = logs.filter(timestamp__lte=end_date)
+
+            # Paginate results
+            paginator = Paginator(logs, 50)  # Show 50 logs per page
+            page_number = request.GET.get('page')
+            page_obj = paginator.get_page(page_number)
+
+            # Get unique sources and levels for filter dropdowns
+            sources = WindowsEventLog.objects.values_list('source', flat=True).distinct()
+            levels = WindowsEventLog.objects.values_list('level', flat=True).distinct()
+
+            context = {
+                'logs': page_obj,
+                'sources': sources,
+                'levels': levels,
+                'current_source': source,
+                'current_level': level,
+                'start_date': start_date,
+                'end_date': end_date,
+            }
+            return render(request, 'edr_app/logs.html', context)
+    except Exception as e:
+        messages.error(request, f"Error loading logs: {str(e)}")
+        return render(request, 'edr_app/logs.html', {'error': str(e)})
 
 @staff_member_required
 def view_logs(request):
@@ -208,51 +249,82 @@ def download_logs(request):
 
     return response
 
+@api_view(['POST'])
 @csrf_exempt
+@permission_classes([AllowAny])
 def upload_logs(request):
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
-
     try:
-        data = json.loads(request.body)
-        logs_data = data.get('logs', [])
+        # Parse JSON data
+        try:
+            data = json.loads(request.body) if isinstance(request.body, bytes) else request.data
+        except json.JSONDecodeError:
+            return Response(
+                {'error': 'Invalid JSON data'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Get or create client based on hostname
-        hostname = logs_data[0].get('hostname') if logs_data else None
+        # Get hostname from data
+        hostname = data.get('hostname')
         if not hostname:
-            return JsonResponse({'error': 'Hostname is required'}, status=400)
+            return Response(
+                {'error': 'Hostname is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        client, _ = Client.objects.get_or_create(
+        # Get or create client
+        client, created = Client.objects.get_or_create(
             hostname=hostname,
             defaults={'ip_address': request.META.get('REMOTE_ADDR', '0.0.0.0')}
         )
 
-        # Create logs
-        logs_to_create = []
+        # Update client's last_seen timestamp
+        client.last_seen = timezone.now()
+        client.save()
+
+        # Process logs
+        logs_data = data.get('logs', [])
+        if not logs_data:
+            return Response(
+                {'error': 'No logs provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         for log_data in logs_data:
-            logs_to_create.append(Log(
+            if not all(key in log_data for key in ['level', 'message', 'source']):
+                continue
+
+            Log.objects.create(
                 client=client,
-                level=log_data.get('level', 'INFO'),
-                message=log_data.get('message', ''),
-                source=log_data.get('source', ''),
-                timestamp=datetime.fromtimestamp(log_data.get('timestamp', 0))
-            ))
+                level=log_data['level'],
+                message=log_data['message'],
+                source=log_data['source'],
+                timestamp=timezone.now()
+            )
 
-        Log.objects.bulk_create(logs_to_create)
-        return JsonResponse({'message': f'Successfully created {len(logs_to_create)} logs'})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+        return Response({'status': 'success'})
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        print(f"Error in upload_logs: {str(e)}")  # Add logging for debugging
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])  # Allow any client to upload data
 def upload_data(request):
     try:
-        # Get hostname from request data
-        hostname = request.data.get('hostname')
+        # Parse JSON data
+        try:
+            data = json.loads(request.body) if isinstance(request.body, bytes) else request.data
+        except json.JSONDecodeError:
+            return Response(
+                {'error': 'Invalid JSON data'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get hostname from data
+        hostname = data.get('hostname')
         if not hostname:
             return Response(
                 {'error': 'Hostname is required'},
@@ -260,7 +332,7 @@ def upload_data(request):
             )
 
         # Validate required data
-        if not any(key in request.data for key in ['processes', 'ports', 'alerts']):
+        if not any(key in data for key in ['processes', 'ports', 'alerts']):
             return Response(
                 {'error': 'At least one of processes, ports, or alerts is required'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -277,13 +349,13 @@ def upload_data(request):
         client.save()
 
         # Process the reported processes
-        if 'processes' in request.data:
+        if 'processes' in data:
             # First validate all process data
             valid_processes = []
-            for proc_data in request.data['processes']:
+            for proc_data in data['processes']:
                 if all(key in proc_data for key in ['pid', 'name']):
                     valid_processes.append(proc_data)
-                
+            
             # Only delete old processes if we have valid new data
             if valid_processes:
                 Process.objects.filter(client=client).delete()  # Clear old processes
@@ -297,9 +369,9 @@ def upload_data(request):
                     )
 
         # Process the reported ports
-        if 'ports' in request.data:
+        if 'ports' in data:
             Port.objects.filter(client=client).delete()  # Clear old ports
-            for port_data in request.data['ports']:
+            for port_data in data['ports']:
                 if not all(key in port_data for key in ['port', 'protocol', 'state']):
                     continue
                 Port.objects.create(
@@ -312,8 +384,8 @@ def upload_data(request):
                 )
 
         # Process the reported alerts
-        if 'alerts' in request.data:
-            for alert_data in request.data['alerts']:
+        if 'alerts' in data:
+            for alert_data in data['alerts']:
                 if not all(key in alert_data for key in ['type', 'description']):
                     continue
                 SuspiciousActivity.objects.create(
@@ -330,6 +402,68 @@ def upload_data(request):
         return Response({'status': 'success'})
     except Exception as e:
         print(f"Error in upload_data: {str(e)}")  # Add logging for debugging
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+@csrf_exempt
+@permission_classes([AllowAny])
+def upload_windows_logs(request):
+    try:
+        # Parse JSON data
+        try:
+            data = json.loads(request.body) if isinstance(request.body, bytes) else request.data
+        except json.JSONDecodeError:
+            return Response(
+                {'error': 'Invalid JSON data'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get hostname from data
+        hostname = data.get('hostname')
+        if not hostname:
+            return Response(
+                {'error': 'Hostname is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get or create client
+        client, created = Client.objects.get_or_create(
+            hostname=hostname,
+            defaults={'ip_address': request.META.get('REMOTE_ADDR', '0.0.0.0')}
+        )
+
+        # Update client's last_seen timestamp
+        client.last_seen = timezone.now()
+        client.save()
+
+        # Process Windows event logs
+        logs_data = data.get('logs', [])
+        if not logs_data:
+            return Response(
+                {'error': 'No logs provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        for log_data in logs_data:
+            if not all(key in log_data for key in ['level', 'message', 'source', 'event_id', 'provider']):
+                continue
+
+            WindowsEventLog.objects.create(
+                client=client,
+                level=log_data['level'],
+                message=log_data['message'],
+                source=log_data['source'],
+                event_id=log_data['event_id'],
+                provider=log_data['provider'],
+                timestamp=timezone.now()
+            )
+
+        return Response({'status': 'success'})
+    except Exception as e:
+        print(f"Error in upload_windows_logs: {str(e)}")  # Add logging for debugging
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -353,8 +487,16 @@ class ClientViewSet(viewsets.ModelViewSet):
 
             # Process the reported processes
             if 'processes' in data:
+                # First validate all process data
+                valid_processes = []
                 for proc_data in data['processes']:
-                    if proc_data['pid'] != 0:  # Skip processes with PID 0
+                    if all(key in proc_data for key in ['pid', 'name']):
+                        valid_processes.append(proc_data)
+                
+                # Only delete old processes if we have valid new data
+                if valid_processes:
+                    Process.objects.filter(client=client).delete()  # Clear old processes
+                    for proc_data in valid_processes:
                         Process.objects.create(
                             client=client,
                             pid=proc_data['pid'],
@@ -473,3 +615,26 @@ class ClientViewSet(viewsets.ModelViewSet):
         )
         
         return Response(LogSerializer(log).data, status=status.HTTP_201_CREATED)
+
+@login_required
+def kill_process(request, client_id, process_id):
+    try:
+        client = get_object_or_404(Client, id=client_id)
+        
+        # Create kill process command
+        command = {
+            'action': 'kill_process',
+            'process_id': process_id
+        }
+        
+        # Send command to client
+        response = client.execute_command(command)
+        
+        if response.get('success'):
+            messages.success(request, f'Successfully terminated process {process_id}')
+        else:
+            messages.error(request, f'Failed to terminate process {process_id}: {response.get("error")}')
+        
+        return JsonResponse({'success': True})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
