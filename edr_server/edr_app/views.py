@@ -409,65 +409,228 @@ def upload_data(request):
 
 @api_view(['POST'])
 @csrf_exempt
-@permission_classes([AllowAny])
-def upload_windows_logs(request):
+@permission_classes([AllowAny])  # Allow any client to access this endpoint
+def pending_commands(request):
+    """Endpoint for clients to fetch their pending commands"""
+    print(f"Received request at: {request.path}")
+    print(f"Request method: {request.method}")
+    print(f"Raw request data: {request.data}")
+    
     try:
-        # Parse JSON data
-        try:
-            data = json.loads(request.body) if isinstance(request.body, bytes) else request.data
-        except json.JSONDecodeError:
-            return Response(
-                {'error': 'Invalid JSON data'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Get client IP address
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip_address = x_forwarded_for.split(',')[0]
+        else:
+            ip_address = request.META.get('REMOTE_ADDR')
+            
+        print(f"Client IP: {ip_address}")
 
-        # Get hostname from data
-        hostname = data.get('hostname')
+        # Parse request data
+        data = request.data
+        if isinstance(data, str):
+            data = json.loads(data)
+        
+        # Handle various data formats
+        hostname = None
+        if isinstance(data, list):
+            if data and isinstance(data[0], dict):
+                hostname = data[0].get('hostname')
+            elif data and isinstance(data[0], str):
+                hostname = data[0]
+        elif isinstance(data, dict):
+            hostname = data.get('hostname')
+        else:
+            hostname = str(data)
+            
+        print(f"Parsed hostname: {hostname}")
+            
         if not hostname:
-            return Response(
-                {'error': 'Hostname is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+            return Response({'error': 'Hostname is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
         # Get or create client
         client, created = Client.objects.get_or_create(
             hostname=hostname,
-            defaults={'ip_address': request.META.get('REMOTE_ADDR', '0.0.0.0')}
+            defaults={'ip_address': ip_address}
         )
-
-        # Update client's last_seen timestamp
+        
+        # Update client info
+        client.ip_address = ip_address
         client.last_seen = timezone.now()
         client.save()
-
-        # Process Windows event logs
-        logs_data = data.get('logs', [])
-        if not logs_data:
-            return Response(
-                {'error': 'No logs provided'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        for log_data in logs_data:
-            if not all(key in log_data for key in ['level', 'message', 'source', 'event_id', 'provider']):
-                continue
-
-            WindowsEventLog.objects.create(
-                client=client,
-                level=log_data['level'],
-                message=log_data['message'],
-                source=log_data['source'],
-                event_id=log_data['event_id'],
-                provider=log_data['provider'],
-                timestamp=timezone.now()
-            )
-
-        return Response({'status': 'success'})
+        
+        print(f"Client {'created' if created else 'updated'}: {client}")
+        
+        # Get pending commands
+        commands = client.commands.filter(executed=False).order_by('created_at')
+        response_data = {
+            'commands': [{'id': cmd.id, 'command': cmd.command, 'args': cmd.args} for cmd in commands]
+        }
+        print(f"Sending response: {response_data}")
+        return Response(response_data)
+            
     except Exception as e:
-        print(f"Error in upload_windows_logs: {str(e)}")  # Add logging for debugging
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        import traceback
+        print(f"Error in pending_commands: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def upload_windows_logs(request):
+    """Endpoint for clients to upload Windows logs"""
+    print(f"Received request at: {request.path}")
+    print(f"Request method: {request.method}")
+    print(f"Raw request data: {request.data}")
+    
+    try:
+        # Get client IP address
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip_address = x_forwarded_for.split(',')[0]
+        else:
+            ip_address = request.META.get('REMOTE_ADDR')
+            
+        print(f"Client IP: {ip_address}")
+
+        # Parse request data
+        data = request.data
+        if isinstance(data, str):
+            data = json.loads(data)
+            
+        # Extract hostname and log data
+        if isinstance(data, dict):
+            hostname = data.get('hostname')
+            log_data = data.get('data')
+        else:
+            return Response({'error': 'Invalid request format'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        print(f"Parsed hostname: {hostname}")
+        print(f"Log data: {log_data}")
+            
+        if not hostname:
+            return Response({'error': 'Hostname is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if not log_data:
+            return Response({'error': 'Log data is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create client
+        client, created = Client.objects.get_or_create(
+            hostname=hostname,
+            defaults={'ip_address': ip_address}
         )
+        
+        # Update client info
+        client.ip_address = ip_address
+        client.last_seen = timezone.now()
+        client.save()
+        
+        print(f"Client {'created' if created else 'updated'}: {client}")
+        
+        # Process log data
+        try:
+            if isinstance(log_data, list):
+                for log in log_data:
+                    WindowsEventLog.objects.create(
+                        client=client,
+                        level=log.get('level', 'INFO'),
+                        message=log.get('message', ''),
+                        source=log.get('source', ''),
+                        event_id=log.get('event_id', ''),
+                        provider=log.get('provider', ''),
+                        timestamp=log.get('timestamp', timezone.now())
+                    )
+            elif isinstance(log_data, dict):
+                WindowsEventLog.objects.create(
+                    client=client,
+                    level=log_data.get('level', 'INFO'),
+                    message=log_data.get('message', ''),
+                    source=log_data.get('source', ''),
+                    event_id=log_data.get('event_id', ''),
+                    provider=log_data.get('provider', ''),
+                    timestamp=log_data.get('timestamp', timezone.now())
+                )
+        except Exception as e:
+            print(f"Error processing log data: {str(e)}")
+            print(f"Log data was: {log_data}")
+            return Response({'error': f'Error processing log data: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({'status': 'success'})
+            
+    except Exception as e:
+        import traceback
+        print(f"Error in upload_windows_logs: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([AllowAny])
+def pending_commands(request):
+    """Endpoint for clients to fetch their pending commands"""
+    print(f"Received request at: {request.path}")
+    print(f"Request method: {request.method}")
+    print(f"Raw request data: {request.data}")
+    
+    try:
+        # Get client IP address
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip_address = x_forwarded_for.split(',')[0]
+        else:
+            ip_address = request.META.get('REMOTE_ADDR')
+            
+        print(f"Client IP: {ip_address}")
+
+        # Parse request data
+        data = request.data
+        if isinstance(data, str):
+            data = json.loads(data)
+        
+        # Handle various data formats
+        hostname = None
+        if isinstance(data, list):
+            if data and isinstance(data[0], dict):
+                hostname = data[0].get('hostname')
+            elif data and isinstance(data[0], str):
+                hostname = data[0]
+        elif isinstance(data, dict):
+            hostname = data.get('hostname')
+        else:
+            hostname = str(data)
+            
+        print(f"Parsed hostname: {hostname}")
+            
+        if not hostname:
+            return Response({'error': 'Hostname is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create client
+        client, created = Client.objects.get_or_create(
+            hostname=hostname,
+            defaults={'ip_address': ip_address}
+        )
+        
+        # Update client info
+        client.ip_address = ip_address
+        client.last_seen = timezone.now()
+        client.save()
+        
+        print(f"Client {'created' if created else 'updated'}: {client}")
+        
+        # Get pending commands
+        commands = client.commands.filter(executed=False).order_by('created_at')
+        response_data = {
+            'commands': [{'id': cmd.id, 'command': cmd.command, 'args': cmd.args} for cmd in commands]
+        }
+        print(f"Sending response: {response_data}")
+        return Response(response_data)
+            
+    except Exception as e:
+        import traceback
+        print(f"Error in pending_commands: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class ClientViewSet(viewsets.ModelViewSet):

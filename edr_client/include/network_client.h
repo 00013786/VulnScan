@@ -1,26 +1,18 @@
-#ifndef NETWORK_CLIENT_H
-#define NETWORK_CLIENT_H
+#pragma once
 
-#include <winsock2.h>
-#include <windows.h>
-#include <winhttp.h>
 #include <string>
-#include <nlohmann/json.hpp>
+#include <vector>
 #include <queue>
 #include <mutex>
 #include <chrono>
-#include "process_scanner.h"
-#include "port_scanner.h"
-#include "behavior_monitor.h"
+#include <windows.h>
+#include <winhttp.h>
+#include <nlohmann/json.hpp>
+#include "process_info.h"
+#include "port_info.h"
+#include "suspicious_activity.h"
 
 using json = nlohmann::json;
-
-#define SERVER_URL L"http://127.0.0.1:8000"
-
-// Path constants
-const std::string UPLOAD_PATH = "/api/upload/";
-const std::string LOGS_PATH = "/api/logs/upload/";
-const std::string WINDOWS_LOGS_PATH = "/api/logs/windows/";
 
 struct LogEntry {
     std::string level;
@@ -30,47 +22,35 @@ struct LogEntry {
 };
 
 class NetworkClient {
-    friend class NetworkClientTest;
 public:
-    NetworkClient(const std::string& serverUrl);
+    NetworkClient(const std::string& serverUrl, int port);
     ~NetworkClient();
 
-    bool initialize();
     bool sendData(const std::vector<ProcessInfo>& processes,
                  const std::vector<PortInfo>& ports,
                  const std::vector<SuspiciousActivity>& activities);
-    
-    bool sendLog(const std::string& level, const std::string& message, const std::string& source);
-    void sendLog(const std::string& jsonData);
-    bool hasIncomingCommand();
-    nlohmann::json getCommand();
-    void sendResponse(const std::string& response);
-    void checkAndSendLogs();
-    void uploadData(const std::string& data);
-    bool executeCommand(const std::string& command, std::string& output);
+
+    bool sendLogs(const std::vector<LogEntry>& logs);
+    std::vector<std::string> fetchCommands();
+
     std::string createJsonPayload(const std::vector<ProcessInfo>& processes,
                                 const std::vector<PortInfo>& ports,
                                 const std::vector<SuspiciousActivity>& activities);
 
-protected:
-    std::string createLogsPayload(const std::vector<LogEntry>& logs);
-    bool sendQueuedLogs();
-    std::wstring stringToWideString(const std::string& str);
-
 private:
-    bool sendHttpRequest(const std::wstring& endpoint, const std::string& jsonData);
-    bool receiveHttpResponse(HINTERNET hRequest, std::string& response);
-    bool isInitialized;
+    bool sendRequest(const std::string& path,
+                    const std::string& method,
+                    const std::string& data,
+                    std::string* response = nullptr);
+
+    std::string createLogsPayload(const std::vector<LogEntry>& logs);
+    std::wstring stringToWideString(const std::string& str);
+    std::string getHostname();
+
     std::string serverUrl;
-    std::string authToken;
-    std::vector<std::string> queuedLogs;
+    int port;
+    bool isInitialized;
     HINTERNET hSession;
     HINTERNET hConnect;
-    std::queue<LogEntry> logQueue;
     std::mutex logMutex;
-    std::chrono::system_clock::time_point lastLogSent;
-    std::string hostname;
-    std::string getHostname();
 };
-
-#endif // NETWORK_CLIENT_H

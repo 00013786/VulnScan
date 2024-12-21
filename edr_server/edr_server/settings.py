@@ -24,9 +24,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-t@5*opivu-uwz1b3^yq@_34^56@2y_m3pq)+1#6q4i9j+b!9dg'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
 
 
 # Application definition
@@ -59,7 +59,7 @@ ROOT_URLCONF = 'edr_server.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates'), os.path.join(BASE_DIR, 'edr_app', 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -148,9 +148,8 @@ NVD_API_KEY = '17ddec13-52d3-4a29-bd4d-0590d56158b5'
 NVD_API_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
 
 # Authentication settings
-LOGIN_URL = '/login/'
-LOGIN_REDIRECT_URL = '/dashboard/'
-LOGOUT_REDIRECT_URL = '/login/'
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
 
 # Session settings
 SESSION_COOKIE_AGE = 86400  # 24 hours

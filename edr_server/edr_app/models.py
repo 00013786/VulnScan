@@ -46,6 +46,21 @@ class Client(models.Model):
     def __str__(self):
         return f"{self.hostname} ({self.ip_address})"
 
+class Command(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='commands')
+    command = models.CharField(max_length=255)
+    args = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    executed = models.BooleanField(default=False)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    response = models.TextField(blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.command} ({self.client.hostname})"
+
 class Process(models.Model):
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='processes')
     pid = models.IntegerField()

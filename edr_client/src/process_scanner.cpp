@@ -1,154 +1,150 @@
 #include "process_scanner.h"
+#include <windows.h>
 #include <tlhelp32.h>
-#include <iostream>
-#include <winternl.h>
 #include <psapi.h>
+#include <vector>
+#include <memory>
+#include <iostream>
+
+ProcessScanner::ProcessScanner() {}
+
+ProcessScanner::~ProcessScanner() {}
+
+std::string wstringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    try {
+        std::string str(wstr.begin(), wstr.end());
+        return str;
+    } catch (const std::exception& e) {
+        std::cerr << "Error converting wstring to string: " << e.what() << std::endl;
+        return "";
+    }
+}
 
 std::vector<ProcessInfo> ProcessScanner::scanProcesses() {
     std::vector<ProcessInfo> processes;
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to create process snapshot. Error: " << GetLastError() << std::endl;
+        std::cerr << "Failed to create process snapshot" << std::endl;
         return processes;
     }
 
     PROCESSENTRY32W pe32;
-    pe32.dwSize = sizeof(pe32);
+    pe32.dwSize = sizeof(PROCESSENTRY32W);
 
     if (!Process32FirstW(hSnapshot, &pe32)) {
-        std::cerr << "Failed to get first process. Error: " << GetLastError() << std::endl;
         CloseHandle(hSnapshot);
+        std::cerr << "Failed to get first process" << std::endl;
         return processes;
     }
 
     do {
-        ProcessInfo info;
-        info.pid = pe32.th32ProcessID;
-        
-        // Convert wide string to UTF-8
-        std::wstring wName(pe32.szExeFile);
-        info.name = std::string(wName.begin(), wName.end());
-        
-        // Get process handle for additional information
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
-        if (hProcess != NULL) {
-            info.path = getProcessPath(hProcess);
-            info.owner = getProcessOwner(hProcess);
-            info.command_line = getProcessCommandLine(info.pid);
-            CloseHandle(hProcess);
-        } else {
-            info.path = "";
-            info.owner = "";
-            info.command_line = "";
-        }
+        try {
+            // Skip processes with PID 0 (System Idle Process)
+            if (pe32.th32ProcessID == 0) {
+                continue;
+            }
 
-        processes.push_back(info);
+            ProcessInfo process;
+            process.pid = pe32.th32ProcessID;
+            process.parentPid = pe32.th32ParentProcessID;
+            process.name = wstringToString(std::wstring(pe32.szExeFile));
+
+            // Skip if we couldn't get the process name
+            if (process.name.empty()) {
+                continue;
+            }
+
+            // Get process handle
+            HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, process.pid);
+            if (hProcess) {
+                // Get process path
+                wchar_t path[MAX_PATH];
+                if (GetModuleFileNameExW(hProcess, NULL, path, MAX_PATH)) {
+                    process.path = wstringToString(std::wstring(path));
+                }
+
+                // Get process owner
+                HANDLE hToken = NULL;
+                if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+                    DWORD dwSize = 0;
+                    GetTokenInformation(hToken, TokenUser, NULL, 0, &dwSize);
+                    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+                        std::vector<BYTE> buffer(dwSize);
+                        if (GetTokenInformation(hToken, TokenUser, buffer.data(), dwSize, &dwSize)) {
+                            PTOKEN_USER pTokenUser = reinterpret_cast<PTOKEN_USER>(buffer.data());
+                            wchar_t name[256];
+                            wchar_t domain[256];
+                            DWORD nameSize = 256;
+                            DWORD domainSize = 256;
+                            SID_NAME_USE sidType;
+                            if (LookupAccountSidW(NULL, pTokenUser->User.Sid, name, &nameSize,
+                                                domain, &domainSize, &sidType)) {
+                                std::wstring owner = std::wstring(domain) + L"\\" + std::wstring(name);
+                                process.owner = wstringToString(owner);
+                            }
+                        }
+                    }
+                    CloseHandle(hToken);
+                }
+
+                // Get command line (simplified version)
+                process.commandLine = process.path;  // Just use the path as command line for now
+
+                // Get process status
+                process.status = "Running";
+
+                // Get CPU and memory usage
+                FILETIME createTime, exitTime, kernelTime, userTime;
+                if (GetProcessTimes(hProcess, &createTime, &exitTime, &kernelTime, &userTime)) {
+                    ULARGE_INTEGER kernelTimeValue, userTimeValue;
+                    kernelTimeValue.LowPart = kernelTime.dwLowDateTime;
+                    kernelTimeValue.HighPart = kernelTime.dwHighDateTime;
+                    userTimeValue.LowPart = userTime.dwLowDateTime;
+                    userTimeValue.HighPart = userTime.dwHighDateTime;
+
+                    process.cpuUsage = (kernelTimeValue.QuadPart + userTimeValue.QuadPart) / 10000000.0;
+                }
+
+                PROCESS_MEMORY_COUNTERS pmc;
+                if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
+                    process.memoryUsage = pmc.WorkingSetSize / 1024.0;  // Convert to KB
+                }
+
+                // Get loaded modules
+                HMODULE hMods[1024];
+                DWORD cbNeeded;
+                if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+                    for (unsigned int i = 0; i < (cbNeeded / sizeof(HMODULE)); i++) {
+                        wchar_t szModName[MAX_PATH];
+                        if (GetModuleFileNameExW(hProcess, hMods[i], szModName, sizeof(szModName) / sizeof(wchar_t))) {
+                            std::string modulePath = wstringToString(std::wstring(szModName));
+                            if (!modulePath.empty()) {
+                                process.modules.push_back(modulePath);
+                            }
+                        }
+                    }
+                }
+
+                CloseHandle(hProcess);
+            } else {
+                // If we can't open the process, at least set some basic info
+                process.path = "Access Denied";
+                process.owner = "Unknown";
+                process.commandLine = process.name;
+                process.status = "Running";
+                process.cpuUsage = 0.0;
+                process.memoryUsage = 0;
+            }
+
+            processes.push_back(process);
+        } catch (const std::exception& e) {
+            std::cerr << "Error processing process: " << e.what() << std::endl;
+            continue;
+        }
     } while (Process32NextW(hSnapshot, &pe32));
 
     CloseHandle(hSnapshot);
     return processes;
-}
-
-std::string ProcessScanner::getProcessPath(HANDLE process) {
-    char buffer[MAX_PATH];
-    DWORD size = MAX_PATH;
-    
-    if (QueryFullProcessImageNameA(process, 0, buffer, &size)) {
-        return std::string(buffer);
-    }
-
-    // Fallback to GetModuleFileNameEx if QueryFullProcessImageNameA fails
-    if (GetModuleFileNameExA(process, NULL, buffer, MAX_PATH)) {
-        return std::string(buffer);
-    }
-
-    return ""; // Return empty string if we can't get the path
-}
-
-std::string ProcessScanner::getProcessOwner(HANDLE hProcess) {
-    HANDLE hToken = NULL;
-    if (!OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
-        return "";
-    }
-
-    DWORD dwSize = 0;
-    GetTokenInformation(hToken, TokenUser, NULL, 0, &dwSize);
-    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-        CloseHandle(hToken);
-        return "";
-    }
-
-    std::vector<BYTE> buffer(dwSize);
-    PTOKEN_USER pTokenUser = reinterpret_cast<PTOKEN_USER>(buffer.data());
-
-    if (!GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
-        CloseHandle(hToken);
-        return "";
-    }
-
-    WCHAR name[256];
-    DWORD nameSize = sizeof(name)/sizeof(WCHAR);
-    WCHAR domain[256];
-    DWORD domainSize = sizeof(domain)/sizeof(WCHAR);
-    SID_NAME_USE sidType;
-
-    if (!LookupAccountSidW(NULL, pTokenUser->User.Sid, name, &nameSize, domain, &domainSize, &sidType)) {
-        CloseHandle(hToken);
-        return "";
-    }
-
-    CloseHandle(hToken);
-    std::wstring wOwner = std::wstring(domain) + L"\\" + std::wstring(name);
-    return std::string(wOwner.begin(), wOwner.end());
-}
-
-std::string ProcessScanner::getProcessCommandLine(DWORD pid) {
-    // Getting command line requires higher privileges, so we'll skip it for now
-    return "";
-}
-
-bool ProcessScanner::isProcessRunning(DWORD processId) {
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (hProcess == NULL) {
-        return false;
-    }
-
-    DWORD exitCode;
-    bool isRunning = true;
-    if (GetExitCodeProcess(hProcess, &exitCode)) {
-        isRunning = (exitCode == STILL_ACTIVE);
-    }
-
-    CloseHandle(hProcess);
-    return isRunning;
-}
-
-bool ProcessScanner::killProcess(DWORD processId) {
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
-    if (hProcess == NULL) {
-        std::cerr << "Failed to open process " << processId << " for termination. Error: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    bool success = TerminateProcess(hProcess, 1);
-    DWORD error = GetLastError();
-    CloseHandle(hProcess);
-
-    if (!success) {
-        std::cerr << "Failed to terminate process " << processId << ". Error: " << error << std::endl;
-        return false;
-    }
-
-    // Wait a bit and verify the process is actually terminated
-    Sleep(500); // Wait 500ms for the process to terminate
-    bool isStillRunning = isProcessRunning(processId);
-    
-    if (isStillRunning) {
-        std::cerr << "Process " << processId << " is still running after termination attempt" << std::endl;
-        return false;
-    }
-
-    std::cout << "Successfully terminated process " << processId << std::endl;
-    return true;
 }

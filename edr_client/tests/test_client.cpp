@@ -5,16 +5,16 @@
 #include <string>
 #include <vector>
 
-class NetworkClientTest : public ::testing::Test, protected NetworkClient {
-protected:
-    NetworkClientTest() : NetworkClient("http://localhost:8000") {}
+class NetworkClientTest : public ::testing::Test, public NetworkClient {
+public:
+    NetworkClientTest() : NetworkClient("localhost", 8000) {}
     void SetUp() override {}
     void TearDown() override {}
 };
 
 TEST_F(NetworkClientTest, CreateJsonPayload_Test) {
     std::vector<ProcessInfo> processes = {
-        ProcessInfo{1234, "test.exe", "C:\\test.exe", "SYSTEM", ""}
+        {1234, "test.exe", "C:\\test.exe", "SYSTEM", "C:\\test.exe", 0, {}, "Running", 0.0, 0}
     };
 
     std::vector<PortInfo> ports = {
@@ -25,8 +25,7 @@ TEST_F(NetworkClientTest, CreateJsonPayload_Test) {
         SuspiciousActivity{"NETWORK", "Suspicious network connection", "test.exe", "2023-01-01 00:00:00"}
     };
 
-    NetworkClient client("http://localhost:8000");
-    std::string payload = client.createJsonPayload(processes, ports, activities);
+    std::string payload = createJsonPayload(processes, ports, activities);
 
     // Verify the payload contains expected data
     EXPECT_TRUE(payload.find("test.exe") != std::string::npos);

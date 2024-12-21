@@ -1,24 +1,16 @@
-#pragma once
-#include <vector>
-#include <string>
-#include <windows.h>
+#ifndef PROCESS_SCANNER_H
+#define PROCESS_SCANNER_H
 
-struct ProcessInfo {
-    DWORD pid;
-    std::string name;
-    std::string path;
-    std::string owner;
-    std::string command_line;
-};
+#include <string>
+#include <vector>
+#include "process_info.h"
 
 class ProcessScanner {
 public:
-    std::vector<ProcessInfo> scanProcesses();
-    bool killProcess(DWORD processId);
-    bool isProcessRunning(DWORD processId);
+    ProcessScanner();
+    ~ProcessScanner();
 
-private:
-    std::string getProcessPath(HANDLE processHandle);
-    std::string getProcessOwner(HANDLE processHandle);
-    std::string getProcessCommandLine(DWORD pid);
+    std::vector<ProcessInfo> scanProcesses();
 };
+
+#endif // PROCESS_SCANNER_H

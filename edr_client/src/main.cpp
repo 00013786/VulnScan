@@ -4,12 +4,13 @@
 #include <thread>
 #include <chrono>
 #include <csignal>
+#include <vector>
+#include <nlohmann/json.hpp>
 #include "network_client.h"
 #include "log_collector.h"
 #include "process_scanner.h"
 #include "port_scanner.h"
 #include "behavior_monitor.h"
-#include "nlohmann/json.hpp"
 
 // Global flag for graceful shutdown
 volatile bool running = true;
@@ -20,105 +21,91 @@ void signalHandler(int signum) {
     running = false;
 }
 
+// Helper function to execute a command and get its output
+bool executeCommand(const std::string& command, std::string& output) {
+    FILE* pipe = _popen(command.c_str(), "r");
+    if (!pipe) {
+        return false;
+    }
+
+    char buffer[128];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+
+    return _pclose(pipe) == 0;
+}
+
 int main() {
     try {
         // Set up signal handler
         signal(SIGINT, signalHandler);
 
         // Initialize components
+        NetworkClient networkClient("localhost", 8000);
         ProcessScanner processScanner;
-        NetworkClient networkClient("http://localhost:8000");
-        BehaviorMonitor behaviorMonitor;
         PortScanner portScanner;
+        BehaviorMonitor behaviorMonitor;
 
-        if (!networkClient.initialize()) {
-            std::cerr << "Failed to initialize network client" << std::endl;
-            return 1;
-        }
+        std::cout << "EDR Client started" << std::endl;
 
-        // Function to handle commands
-        auto handleCommand = [&](const nlohmann::json& command) {
-            try {
-                std::string action = command["action"];
-                if (action == "scan") {
-                    // Handle scan command
-                    auto processes = processScanner.scanProcesses();
-                    // Process and send results
-                }
-                else if (action == "kill_process") {
-                    if (!command.contains("process_id")) {
-                        std::cerr << "Missing process_id in kill command" << std::endl;
-                        return;
-                    }
-                    
-                    DWORD processId = command["process_id"];
-                    bool success = processScanner.killProcess(processId);
-                    
-                    nlohmann::json response;
-                    response["success"] = success;
-                    if (!success) {
-                        response["error"] = "Failed to terminate process";
-                    }
-                    
-                    networkClient.sendResponse(response.dump());
-                }
-                else if (action == "verify_process") {
-                    if (!command.contains("process_id")) {
-                        std::cerr << "Missing process_id in verify command" << std::endl;
-                        return;
-                    }
-                    
-                    DWORD processId = command["process_id"];
-                    bool isRunning = processScanner.isProcessRunning(processId);
-                    
-                    nlohmann::json response;
-                    response["is_running"] = isRunning;
-                    networkClient.sendResponse(response.dump());
-                }
-            }
-            catch (const std::exception& e) {
-                std::cerr << "Error handling command: " << e.what() << std::endl;
-            }
-        };
-
-        // Main loop
+        // Main monitoring loop
         while (running) {
             try {
-                // Scan processes
+                // Scan for processes and ports
                 auto processes = processScanner.scanProcesses();
+                auto ports = portScanner.scanPorts();
+                auto suspiciousActivities = behaviorMonitor.detectSuspiciousActivities();
 
-                // Convert to JSON
-                nlohmann::json j = nlohmann::json::array();
-                for (const auto& process : processes) {
-                    nlohmann::json processJson;
-                    processJson["pid"] = process.pid;
-                    processJson["name"] = process.name;
-                    processJson["path"] = process.path;
-                    processJson["owner"] = process.owner;
-                    j.push_back(processJson);
+                // Send data to server
+                if (!networkClient.sendData(processes, ports, suspiciousActivities)) {
+                    std::cerr << "Failed to send data to server" << std::endl;
                 }
 
-                // Send to server
-                networkClient.sendLog(j.dump());
-
-                // Check and send logs
-                networkClient.checkAndSendLogs();
-
-                // Handle incoming commands
-                if (networkClient.hasIncomingCommand()) {
-                    nlohmann::json command = networkClient.getCommand();
-                    handleCommand(command);
+                // Check for commands from server
+                auto commands = networkClient.fetchCommands();
+                for (const auto& command : commands) {
+                    std::cout << "Executing command: " << command << std::endl;
+                    
+                    std::string output;
+                    bool success = executeCommand(command, output);
+                    
+                    // Create log entry for command execution
+                    LogEntry logEntry{
+                        success ? "INFO" : "ERROR",
+                        "Command execution: " + command + "\nOutput: " + output,
+                        "command_executor",
+                        std::chrono::system_clock::now()
+                    };
+                    
+                    std::vector<LogEntry> logs{logEntry};
+                    networkClient.sendLogs(logs);
                 }
 
+                // Sleep for a while before next scan
                 std::cout << "Waiting 1 second before next scan..." << std::endl;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             catch (const std::exception& e) {
-                std::cerr << "Error in main loop: " << e.what() << std::endl;
+                std::cerr << "Error in monitoring loop: " << e.what() << std::endl;
+                
+                // Log the error
+                LogEntry errorLog{
+                    "ERROR",
+                    e.what(),
+                    "main_loop",
+                    std::chrono::system_clock::now()
+                };
+                
+                std::vector<LogEntry> logs{errorLog};
+                networkClient.sendLogs(logs);
+                
+                // Sleep for a while before retrying
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
 
+        std::cout << "EDR Client shutting down..." << std::endl;
         return 0;
     }
     catch (const std::exception& e) {
